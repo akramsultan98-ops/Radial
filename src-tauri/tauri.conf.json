@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "RADIAL",
+  "version": "0.1.0",
+  "identifier": "app.radial.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "RADIAL",
+        "width": 1240,
+        "height": 820,
+        "minWidth": 880,
+        "minHeight": 620,
+        "center": true,
+        "theme": "Dark",
+        "backgroundColor": "#0b0c0f",
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' blob: data:",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'",
+        "frame-ancestors": "'none'"
+      },
+      "freezePrototype": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "RADIAL",
+    "category": "Utility",
+    "shortDescription": "Local-first file conversion with a radial format selector",
+    "longDescription": "RADIAL converts images locally on your computer. Drop a file, pick a format from the radial menu, and save. Nothing is uploaded.",
+    "copyright": "© 2026 RADIAL contributors",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false }
+    }
+  }
+}

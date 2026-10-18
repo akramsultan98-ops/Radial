@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The only window. File access goes through RADIAL's own commands, which only accept paths the user chose via a native dialog, drag-and-drop or launch arguments; the webview gets no file-system, dialog, shell or opener permissions.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "core:webview:default",
+    "core:window:default",
+    "allow-take-launch-files",
+    "allow-pick-files",
+    "allow-pick-directory",
+    "allow-source-formats",
+    "allow-capabilities-for",
+    "allow-suggest-output",
+    "allow-convert",
+    "allow-cancel-job",
+    "allow-preview",
+    "allow-history-list",
+    "allow-history-clear",
+    "allow-history-retry",
+    "allow-open-path",
+    "allow-reveal-path",
+    "allow-get-settings",
+    "allow-set-settings"
+  ]
+}

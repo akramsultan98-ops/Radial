@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-capabilities-for"
+description = "Enables the capabilities_for command without any pre-configured scope."
+commands.allow = ["capabilities_for"]
+
+[[permission]]
+identifier = "deny-capabilities-for"
+description = "Denies the capabilities_for command without any pre-configured scope."
+commands.deny = ["capabilities_for"]

@@ -1,0 +1,108 @@
+/* RADIAL design tokens. Every colour, size and duration used by components
+   comes from here. Contrast ratios noted are against --surface-1. */
+
+:root {
+  /* Surfaces: near-black, slightly cool. */
+  --surface-0: #0a0b0e; /* app background */
+  --surface-1: #101217; /* panels */
+  --surface-2: #161922; /* raised: cards, ring segments */
+  --surface-3: #1d212c; /* hover */
+  --surface-4: #262b38; /* pressed / selected neutral */
+  --scrim: rgba(5, 6, 9, 0.72);
+
+  --line-1: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.1);
+  --line-3: rgba(255, 255, 255, 0.16);
+
+  /* Text. */
+  --text-1: #eef0f5; /* 16.4:1 */
+  --text-2: #a9b0bf; /* 8.3:1 */
+  --text-3: #808898; /* 5.0:1 — smallest allowed for body text */
+  --text-on-accent: #0b0d16;
+
+  /* Accent: a restrained periwinkle. */
+  --accent: #8fa2ff;
+  --accent-strong: #6f86ff;
+  --accent-soft: rgba(143, 162, 255, 0.14);
+  --accent-line: rgba(143, 162, 255, 0.45);
+  --accent-glow: rgba(111, 134, 255, 0.35);
+
+  /* Status. */
+  --success: #5fd4a0;
+  --success-soft: rgba(95, 212, 160, 0.12);
+  --warning: #f2c46d;
+  --warning-soft: rgba(242, 196, 109, 0.12);
+  --danger: #ff7d7d;
+  --danger-soft: rgba(255, 125, 125, 0.12);
+
+  /* Typography. */
+  --font-sans: "Inter Variable", "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-md: 13.5px;
+  --text-lg: 15px;
+  --text-xl: 19px;
+  --text-2xl: 26px;
+  --leading-tight: 1.25;
+  --leading: 1.5;
+  --weight-regular: 430;
+  --weight-medium: 520;
+  --weight-semibold: 600;
+  --tracking-caps: 0.08em;
+
+  /* Spacing (4px grid). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-14: 56px;
+
+  /* Radius. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  /* Elevation. */
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 24px 64px rgba(0, 0, 0, 0.6);
+
+  /* Focus. */
+  --focus-ring: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--accent);
+
+  /* Motion. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-1: 110ms;
+  --dur-2: 200ms;
+  --dur-3: 340ms;
+  --stagger: 28ms;
+
+  /* Layout. */
+  --topbar-h: 52px;
+  --statusbar-h: 30px;
+  --panel-w: 360px;
+}
+
+/* Reduced motion: honoured from the OS unless the user forces full motion,
+   and forced when the user picks "Reduced" in settings. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --stagger: 0ms;
+  }
+}
+:root[data-motion="reduced"] {
+  --dur-1: 0ms;
+  --dur-2: 0ms;
+  --dur-3: 0ms;
+  --stagger: 0ms;
+}

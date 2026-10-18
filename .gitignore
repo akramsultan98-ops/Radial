@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+/dist/
+/dist-mock/
+/target/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Test & QA output (screenshots that are curated live in qa/screenshots and are committed)
+/coverage/
+/test-results/
+/playwright-report/
+/qa/tmp/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

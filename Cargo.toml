@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/radial-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/akramsultan98-ops/Radial"
+rust-version = "1.88"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tempfile = "3.27"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
+
+# Image decoding/encoding is painfully slow unoptimised; keep dev builds usable.
+[profile.dev.package."*"]
+opt-level = 3

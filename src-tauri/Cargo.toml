@@ -1,0 +1,23 @@
+[package]
+name = "radial"
+description = "RADIAL desktop shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+default-run = "radial"
+
+[lib]
+name = "radial_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+radial-core = { path = "../crates/radial-core" }
+tauri = { version = "2.12.4", features = [] }
+tauri-plugin-dialog = "2.7.3"
+tauri-plugin-opener = "2.7.2"
+tokio = { version = "1", features = ["sync"] }
+serde.workspace = true
+serde_json.workspace = true
