@@ -315,9 +315,10 @@ fn compact_page_images(doc: &mut lopdf::Document, page_id: ObjectId) {
         if !opaque_mask {
             continue;
         }
-        let grey = rgb.chunks_exact(3).all(|p| p[0] == p[1] && p[1] == p[2]);
+        let px = rgb.as_chunks::<3>().0;
+        let grey = px.iter().all(|p| p[0] == p[1] && p[1] == p[2]);
         let (pixels, channels): (Vec<u8>, usize) = if grey {
-            (rgb.chunks_exact(3).map(|p| p[0]).collect(), 1)
+            (px.iter().map(|p| p[0]).collect(), 1)
         } else {
             (rgb, 3)
         };
