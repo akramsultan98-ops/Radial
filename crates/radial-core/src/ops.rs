@@ -14,6 +14,7 @@ use crate::metadata::{self, MetadataEdit};
 use crate::options::{ConvertOptions, Resize};
 use crate::output;
 use crate::paths;
+use crate::pdf::{self, PdfOptions};
 use crate::registry::{CancelKind, Capability, OptionSpec, Registry};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -107,6 +108,7 @@ pub struct Operation {
 }
 
 const IMAGE_ENGINE: &str = "Built-in image engine";
+const PDF_ENGINE: &str = "PDF engine (PDFium)";
 
 fn op(id: OperationId, description: impl Into<String>, output: Option<Format>) -> Operation {
     Operation {
@@ -136,6 +138,9 @@ pub fn operations_for(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
     let Some(f) = info.format.filter(|_| info.problem.is_none()) else {
         return Vec::new();
     };
+    if f == Format::Pdf {
+        return pdf_operations(registry, info);
+    }
     let quality = |o: &mut Operation| o.options.extend(quality_spec(f));
     let gif_note =
         (f == Format::Gif).then(|| "Only the first frame of an animated GIF is kept.".to_string());
@@ -194,6 +199,7 @@ pub fn operations_for(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
                 "GIF compression would drop animation frames. Convert to PNG or WebP instead.",
             );
         }
+        Format::Pdf | Format::Txt => unreachable!("not an image"),
     }
     compress
         .limitations
@@ -291,6 +297,112 @@ pub fn operations_for(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
     ops
 }
 
+/// Operations for a PDF.
+fn pdf_operations(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
+    let mk = |id, description: &str| {
+        let mut o = op(id, description, Some(Format::Pdf));
+        o.engine_label = PDF_ENGINE;
+        o
+    };
+    let signed_note = info.signed.then(|| {
+        "This PDF is digitally signed: a changed copy won't carry a valid signature.".to_string()
+    });
+    let mut ops = Vec::new();
+
+    let mut convert = mk(OperationId::Convert, "Export pages as images or text");
+    convert.output_format = None;
+    convert.targets = registry.targets_for(Format::Pdf);
+    convert.available = convert.targets.iter().any(|c| c.available);
+    ops.push(convert);
+
+    let mut compress = mk(OperationId::Compress, "Make the PDF smaller");
+    compress.options.extend([
+        OptionSpec::Quality {
+            min: 10,
+            max: 95,
+            default: 60,
+        },
+        OptionSpec::MaxDimension,
+    ]);
+    compress.limitations.extend([
+        "Photos stored as JPEG are re-encoded at the chosen quality (and optionally reduced in size); text and vector graphics are unchanged.".to_string(),
+        "Unused objects and page thumbnails are removed and the file structure is compressed.".into(),
+        "If the result isn't smaller than the original, nothing is saved.".into(),
+    ]);
+    ops.push(compress);
+
+    ops.push(unavailable(
+        mk(OperationId::Edit, "Change text and layout"),
+        "Editing PDF text and layout isn't supported yet. Use Annotate to add text or Crop to trim pages.",
+    ));
+
+    let mut crop = mk(OperationId::Crop, "Trim page margins");
+    crop.options
+        .extend([OptionSpec::Page, OptionSpec::Crop, OptionSpec::PageScope]);
+    crop.preview = true;
+    crop.limitations.push("Content outside the crop is hidden, not deleted: PDF editors can restore it. Use Redact to remove sensitive content.".into());
+    ops.push(crop);
+
+    let mut annotate = mk(
+        OperationId::Annotate,
+        "Draw arrows, shapes and text on pages",
+    );
+    annotate
+        .options
+        .extend([OptionSpec::Page, OptionSpec::Shapes]);
+    annotate.preview = true;
+    annotate.limitations.extend([
+        "Annotations are added to the page content: they print, and can't be moved or deleted as comments in a PDF reader.".to_string(),
+        "Text uses Helvetica, or embeds DejaVu Sans (about 0.7 MB) for other characters; right-to-left scripts such as Arabic are not shaped correctly yet.".into(),
+    ]);
+    ops.push(annotate);
+
+    let mut redact = mk(OperationId::Redact, "Permanently remove text and areas");
+    redact
+        .options
+        .extend([OptionSpec::Page, OptionSpec::Regions, OptionSpec::Terms]);
+    redact.preview = true;
+    redact.limitations.extend([
+        format!("Each page with a redaction is replaced by an image of itself ({} DPI) with the areas blacked out. Its text, links and form fields are removed, so the page can't be searched or copied from. Other pages are unchanged.", pdf::REDACT_DPI),
+        "Text you enter is found on every page (not in scanned pages, which have no text) and blacked out; the saved file is checked to make sure it no longer contains it anywhere.".into(),
+        "Document metadata (title, author, XMP) is removed. Bookmarks and attachments aren't changed.".into(),
+    ]);
+    ops.push(redact);
+
+    ops.push(unavailable(
+        mk(OperationId::Background, "Fill transparency or add a border"),
+        "Background applies to images. Pages in a PDF already have a background.",
+    ));
+
+    let mut meta = mk(
+        OperationId::Metadata,
+        "View, edit or remove document properties",
+    );
+    if info.signed || info.restricted {
+        meta.limitations
+            .push("Document properties can be viewed but not edited for this file.".into());
+    } else {
+        meta.options
+            .extend([OptionSpec::MetadataFields, OptionSpec::StripMetadata]);
+        meta.limitations.push("Title, author, subject and keywords can be edited. Dates, creator and producer are read-only, and PDFs have no copyright field.".into());
+        meta.limitations
+            .push("Page content is copied unchanged.".into());
+    }
+    ops.push(meta);
+
+    for o in &mut ops {
+        if o.id == OperationId::Metadata {
+            continue;
+        }
+        if info.restricted && o.available {
+            o.available = false;
+            o.reason = Some("This PDF has security restrictions (an owner password), so RADIAL won't change or export it.".into());
+        }
+        o.limitations.extend(signed_note.clone());
+    }
+    ops
+}
+
 fn quality_spec(f: Format) -> Option<OptionSpec> {
     match f {
         Format::Jpeg => Some(OptionSpec::Quality {
@@ -324,6 +436,9 @@ pub struct OperationRequest {
     /// Compress: longest side in pixels.
     #[serde(default)]
     pub max_dimension: Option<u32>,
+    /// PDF-specific options (page, regions, search terms, resolution).
+    #[serde(default)]
+    pub pdf: PdfOptions,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -468,6 +583,9 @@ pub fn run(
     if req.operation == OperationId::Metadata {
         return run_metadata(&source, from, &info, req, cancel, on_stage);
     }
+    if from == Format::Pdf {
+        return run_pdf(&source, &info, op, req, cancel, on_stage);
+    }
 
     let target = match req.operation {
         OperationId::Convert => {
@@ -488,6 +606,11 @@ pub fn run(
         }
         _ => from,
     };
+    if target == Format::Pdf {
+        return write_pdf_result(&source, &info, req, target, cancel, &mut on_stage, |_| {
+            pdf::image_to_pdf(&source, from)
+        });
+    }
     let (options, shrink_below) = options_for(req.operation, &info, req)?;
     let resolved = options.validate(target)?;
     let out = output::plan(&source, &req.dest_dir, &req.stem, target.extension())?;
@@ -531,6 +654,31 @@ fn run_metadata(
     cancel: &AtomicBool,
     mut on_stage: impl FnMut(Stage),
 ) -> Result<OperationOutcome> {
+    if from == Format::Pdf {
+        if info.restricted || info.signed {
+            return Err(RadialError::new(
+                ErrorKind::UnsupportedFormat,
+                "Document properties can't be edited for this PDF.",
+            ));
+        }
+        req.metadata.validate(&pdf::meta_keys())?;
+        return write_pdf_result(
+            source,
+            info,
+            req,
+            Format::Pdf,
+            cancel,
+            &mut on_stage,
+            |_| {
+                let data = std::fs::read(source)
+                    .map_err(|e| RadialError::from_io(&e, "reading the file"))?;
+                let (bytes, notes) = pdf::write_metadata(&data, &req.metadata)?;
+                pdf::verify_metadata(&bytes, &req.metadata)?;
+                pdf::verify_pages(&bytes, info.pages.unwrap_or(0))?;
+                Ok((bytes, notes))
+            },
+        );
+    }
     if !metadata::supports_editing(from) {
         return Err(RadialError::new(
             ErrorKind::UnsupportedFormat,
@@ -580,6 +728,177 @@ fn run_metadata(
         format: from,
         width: info.width,
         height: info.height,
+        size_bytes,
+        source_size_bytes: info.size,
+        notes,
+    })
+}
+
+/// Run a PDF operation.
+fn run_pdf(
+    source: &Path,
+    info: &FileInfo,
+    op: &Operation,
+    req: &OperationRequest,
+    cancel: &AtomicBool,
+    mut on_stage: impl FnMut(Stage),
+) -> Result<OperationOutcome> {
+    let p = &req.pdf;
+    match req.operation {
+        OperationId::Convert => {
+            let target = req
+                .target
+                .ok_or_else(|| invalid("Choose a format to convert to."))?;
+            if !op.targets.iter().any(|c| c.to == target && c.available) {
+                return Err(RadialError::new(
+                    ErrorKind::UnsupportedConversion,
+                    format!("PDF → {} is not a supported conversion.", target.label()),
+                ));
+            }
+            if target == Format::Txt {
+                return write_pdf_result(source, info, req, target, cancel, &mut on_stage, |c| {
+                    let (text, pages) = pdf::to_text(source, c)?;
+                    let total = info.pages.unwrap_or(0);
+                    let mut notes = vec![format!(
+                        "Text extracted from {pages} of {total} page{}.",
+                        if total == 1 { "" } else { "s" }
+                    )];
+                    if (pages as u32) < total {
+                        notes.push(
+                            "Pages without a text layer (such as scans) produced no text.".into(),
+                        );
+                    }
+                    Ok((text.into_bytes(), notes))
+                });
+            }
+            let dpi = p.dpi()?;
+            let options = ConvertOptions {
+                quality: req.options.quality,
+                ..Default::default()
+            };
+            let resolved = options.validate(target)?;
+            let out = output::plan(source, &req.dest_dir, &req.stem, target.extension())?;
+            engine::check_cancel(cancel)?;
+            on_stage(Stage::Decoding);
+            let img = pdf::to_image(source, p.page, dpi)?;
+            let r = engine::encode_job(
+                img,
+                None,
+                target,
+                &resolved,
+                &out,
+                None,
+                cancel,
+                &mut on_stage,
+            )?;
+            Ok(OperationOutcome {
+                output_path: out,
+                operation: req.operation,
+                source_format: Format::Pdf,
+                format: target,
+                width: Some(r.width),
+                height: Some(r.height),
+                size_bytes: r.size_bytes,
+                source_size_bytes: info.size,
+                notes: vec![format!("Page {} rendered at {dpi} DPI.", p.page + 1)],
+            })
+        }
+        OperationId::Compress => {
+            let quality = req.options.quality.unwrap_or(60);
+            if !(10..=95).contains(&quality) {
+                return Err(invalid("Quality must be between 10 and 95."));
+            }
+            if req.max_dimension == Some(0) {
+                return Err(invalid("The maximum size must be at least 1 pixel."));
+            }
+            write_pdf_result(source, info, req, Format::Pdf, cancel, &mut on_stage, |c| {
+                pdf::compress(source, quality, req.max_dimension, c)
+            })
+        }
+        OperationId::Crop => {
+            let rect = req
+                .options
+                .edits
+                .crop
+                .ok_or_else(|| invalid("Draw the area to keep first."))?;
+            write_pdf_result(source, info, req, Format::Pdf, cancel, &mut on_stage, |c| {
+                pdf::crop(source, &rect, p, c)
+            })
+        }
+        OperationId::Annotate => {
+            write_pdf_result(source, info, req, Format::Pdf, cancel, &mut on_stage, |c| {
+                pdf::annotate(source, &req.options.annotations, c)
+            })
+        }
+        OperationId::Redact => {
+            write_pdf_result(source, info, req, Format::Pdf, cancel, &mut on_stage, |c| {
+                pdf::redact(source, p, c)
+            })
+        }
+        other => Err(RadialError::new(
+            ErrorKind::UnsupportedConversion,
+            format!("{} isn't available for PDF files.", other.label()),
+        )),
+    }
+}
+
+/// Shared tail of operations that produce a whole new file in memory:
+/// plan the output, build it, stage it, confirm it's a readable file of the
+/// right type, then move it into place.
+fn write_pdf_result(
+    source: &Path,
+    info: &FileInfo,
+    req: &OperationRequest,
+    target: Format,
+    cancel: &AtomicBool,
+    on_stage: &mut impl FnMut(Stage),
+    build: impl FnOnce(&AtomicBool) -> Result<(Vec<u8>, Vec<String>)>,
+) -> Result<OperationOutcome> {
+    let out = output::plan(source, &req.dest_dir, &req.stem, target.extension())?;
+    engine::check_cancel(cancel)?;
+    on_stage(Stage::Decoding);
+    on_stage(Stage::Processing);
+    let (bytes, notes) = build(cancel)?;
+    engine::check_cancel(cancel)?;
+    on_stage(Stage::Encoding);
+    let mut tmp = output::stage(&out)?;
+    tmp.write_all(&bytes)
+        .map_err(|e| RadialError::from_io(&e, "writing the output"))?;
+    output::sync(&tmp)?;
+    engine::check_cancel(cancel)?;
+    on_stage(Stage::Verifying);
+    let (width, height) = match target {
+        Format::Txt => {
+            let back = std::fs::read(tmp.path())
+                .map_err(|e| RadialError::from_io(&e, "verifying the output"))?;
+            if back != bytes || std::str::from_utf8(&back).is_err() {
+                return Err(RadialError::new(
+                    ErrorKind::EngineFailed,
+                    "The text file could not be verified.",
+                ));
+            }
+            (None, None)
+        }
+        _ => {
+            let check = detect::inspect(tmp.path())?;
+            if check.problem.is_some() || check.format != Some(target) {
+                return Err(RadialError::new(
+                    ErrorKind::EngineFailed,
+                    "The result failed verification, so nothing was saved.",
+                ));
+            }
+            (check.width, check.height)
+        }
+    };
+    engine::check_cancel(cancel)?;
+    let size_bytes = output::persist(tmp, &out)?;
+    Ok(OperationOutcome {
+        output_path: out,
+        operation: req.operation,
+        source_format: info.format.unwrap_or(target),
+        format: target,
+        width,
+        height,
         size_bytes,
         source_size_bytes: info.size,
         notes,

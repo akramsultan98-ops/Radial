@@ -35,6 +35,8 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
+      - name: Fetch pinned PDFium
+        run: node scripts/fetch-pdfium.mjs
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
@@ -63,10 +65,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
-      - name: Core tests on Windows
+      - name: Fetch pinned PDFium
+        run: node scripts/fetch-pdfium.mjs
+      - name: Core tests on Windows (images and PDFs)
         run: cargo test -p radial-core
       - name: Build installers
         run: npm run tauri build
+      - name: Check PDFium is bundled
+        shell: pwsh
+        run: |
+          if (-not (Test-Path target/release/pdfium/pdfium.dll)) { throw "pdfium.dll missing from the bundle resources" }
+          if (-not (Test-Path target/release/pdfium/LICENSE)) { throw "PDFium licence missing" }
       - uses: actions/upload-artifact@v4
         with:
           name: radial-windows-installers

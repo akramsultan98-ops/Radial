@@ -43,15 +43,16 @@ pub async fn take_launch_files(
 #[tauri::command]
 pub async fn pick_files(app: AppHandle) -> Result<Vec<ImportResult>> {
     blocking(move || {
-        let exts: Vec<&str> = Format::ALL
+        let sources = app.state::<AppState>().registry.sources();
+        let exts: Vec<&str> = sources
             .iter()
             .flat_map(|f| f.extensions().iter().copied())
             .collect();
         let picked = app
             .dialog()
             .file()
-            .set_title("Choose a file to convert")
-            .add_filter("Images", &exts)
+            .set_title("Choose a file")
+            .add_filter("Images and PDFs", &exts)
             .add_filter("All files", &["*"])
             .blocking_pick_files();
         let paths: Vec<PathBuf> = picked
@@ -111,7 +112,11 @@ pub async fn read_metadata(app: AppHandle, path: PathBuf) -> Result<MetadataRepo
         let format = info
             .format
             .ok_or_else(|| RadialError::new(ErrorKind::UnsupportedFormat, "Unsupported file."))?;
-        metadata::read_image(&path, format)
+        if format == Format::Pdf {
+            radial_core::pdf::read_metadata(&path)
+        } else {
+            metadata::read_image(&path, format)
+        }
     })
     .await
 }
@@ -305,17 +310,20 @@ pub fn cancel_job(state: State<'_, AppState>, job_id: String) -> bool {
     }
 }
 
-const PREVIEW_CACHE: usize = 4;
+const PREVIEW_CACHE: usize = 6;
 
 /// Render a preview (downscaled to `max_dim`, with `edits` applied) as raw
-/// JPEG/PNG bytes. Decoded bases are cached so slider changes are fast.
+/// JPEG/PNG bytes. For PDFs, `page` (0-based) selects the page. Decoded
+/// bases are cached so slider changes are fast.
 #[tauri::command]
 pub async fn preview(
     app: AppHandle,
     path: PathBuf,
     edits: Edits,
     max_dim: u32,
+    page: Option<u32>,
 ) -> Result<Response> {
+    let page = page.unwrap_or(0);
     {
         app.state::<AppState>().ensure_file(&path)?;
     }
@@ -325,20 +333,23 @@ pub async fn preview(
         let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         let cached = lock(&state.previews)
             .iter()
-            .find(|e| e.path == path && e.max_dim == max_dim && e.modified == modified)
+            .find(|e| {
+                e.path == path && e.max_dim == max_dim && e.page == page && e.modified == modified
+            })
             .map(|e| e.image.clone());
         let base = match cached {
             Some(b) => b,
             None => {
-                let b = Arc::new(engine::preview_base(&path, max_dim)?);
+                let b = Arc::new(engine::preview_base(&path, page, max_dim)?);
                 let mut cache = lock(&state.previews);
-                cache.retain(|e| !(e.path == path && e.max_dim == max_dim));
+                cache.retain(|e| !(e.path == path && e.max_dim == max_dim && e.page == page));
                 cache.insert(
                     0,
                     PreviewEntry {
                         path: path.clone(),
                         modified,
                         max_dim,
+                        page,
                         image: b.clone(),
                     },
                 );

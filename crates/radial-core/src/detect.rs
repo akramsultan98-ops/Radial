@@ -44,6 +44,9 @@ pub fn sniff(head: &[u8]) -> Option<Recognized> {
     if starts(b"BM") && looks_like_bmp(head) {
         return Some(C(Format::Bmp));
     }
+    if starts(b"%PDF-") {
+        return Some(C(Format::Pdf));
+    }
 
     let known = |id, label, category| {
         Some(Known {
@@ -52,9 +55,6 @@ pub fn sniff(head: &[u8]) -> Option<Recognized> {
             category,
         })
     };
-    if starts(b"%PDF-") {
-        return known("pdf", "PDF", Category::Document);
-    }
     if starts(b"RIFF") && at(8, b"WAVE") {
         return known("wav", "WAV", Category::Audio);
     }
@@ -153,6 +153,13 @@ pub struct FileInfo {
     pub height: Option<u32>,
     pub has_alpha: bool,
     pub bit_depth: Option<u16>,
+    /// PDF only: number of pages. Width/height are then the first page's
+    /// displayed size in points.
+    pub pages: Option<u32>,
+    /// PDF only: has an owner password / permission restrictions.
+    pub restricted: bool,
+    /// PDF only: carries a digital signature.
+    pub signed: bool,
     /// The extension's format disagrees with the content.
     pub extension_mismatch: bool,
     /// When not readable, why (the UI shows this instead of the radial menu).
@@ -186,6 +193,9 @@ pub fn inspect(path: &Path) -> Result<FileInfo> {
         height: None,
         has_alpha: false,
         bit_depth: None,
+        pages: None,
+        restricted: false,
+        signed: false,
         extension_mismatch: false,
         problem: None,
     };
@@ -233,6 +243,20 @@ pub fn inspect(path: &Path) -> Result<FileInfo> {
         }
         Some(Recognized::Convertible(format)) => {
             info.extension_mismatch = ext_format.is_some_and(|e| e != format);
+            if format == Format::Pdf {
+                match crate::pdf::inspect(path) {
+                    Ok(p) => {
+                        info.format = Some(format);
+                        info.width = Some(p.width.round().max(1.0) as u32);
+                        info.height = Some(p.height.round().max(1.0) as u32);
+                        info.pages = Some(p.pages);
+                        info.restricted = p.restricted;
+                        info.signed = p.signed;
+                    }
+                    Err(e) => info.problem = Some(e),
+                }
+                return Ok(info);
+            }
             match read_header(path, format) {
                 Ok(h) => {
                     info.format = Some(format);
@@ -273,7 +297,7 @@ pub(crate) struct Header {
 /// extension), enforcing RADIAL's dimension limits.
 pub(crate) fn read_header(path: &Path, format: Format) -> Result<Header> {
     let file = File::open(path).map_err(|e| RadialError::from_io(&e, "opening the file"))?;
-    let mut reader = image::ImageReader::with_format(BufReader::new(file), format.image_format());
+    let mut reader = image::ImageReader::with_format(BufReader::new(file), format.codec()?);
     reader.limits(limits::decode_limits());
     let decoder = reader
         .into_decoder()
@@ -324,6 +348,10 @@ mod tests {
             sniff(b"MM\0*...."),
             Some(Recognized::Convertible(Format::Tiff))
         );
+        assert_eq!(
+            sniff(b"%PDF-1.7\n"),
+            Some(Recognized::Convertible(Format::Pdf))
+        );
         let mut bmp = vec![b'B', b'M'];
         bmp.extend_from_slice(&[0; 12]);
         bmp.extend_from_slice(&40u32.to_le_bytes());
@@ -342,7 +370,6 @@ mod tests {
             Some(Recognized::Known { id, .. }) => id,
             other => panic!("unexpected {other:?}"),
         };
-        assert_eq!(id(b"%PDF-1.7"), "pdf");
         assert_eq!(id(b"RIFF\0\0\0\0WAVEfmt "), "wav");
         assert_eq!(id(b"\0\0\0\x18ftypheic"), "heic");
         assert_eq!(id(b"\0\0\0\x18ftypavif"), "avif");

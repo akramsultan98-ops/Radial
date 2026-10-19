@@ -17,7 +17,8 @@
     "test:ui": "playwright test",
     "test:rust": "cargo test --workspace",
     "check": "npm run typecheck && npm run lint && npm run test && npm run test:rust",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "pdfium": "node scripts/fetch-pdfium.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.3.0",

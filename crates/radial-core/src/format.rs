@@ -15,10 +15,14 @@ pub enum Format {
     Bmp,
     Tiff,
     Gif,
+    Pdf,
+    /// Plain UTF-8 text (output of text extraction).
+    Txt,
 }
 
 impl Format {
-    pub const ALL: [Format; 6] = [
+    /// Raster image formats handled by the image engine.
+    pub const IMAGES: [Format; 6] = [
         Format::Png,
         Format::Jpeg,
         Format::Webp,
@@ -26,6 +30,21 @@ impl Format {
         Format::Tiff,
         Format::Gif,
     ];
+
+    pub const ALL: [Format; 8] = [
+        Format::Png,
+        Format::Jpeg,
+        Format::Webp,
+        Format::Bmp,
+        Format::Tiff,
+        Format::Gif,
+        Format::Pdf,
+        Format::Txt,
+    ];
+
+    pub fn is_image(self) -> bool {
+        Format::IMAGES.contains(&self)
+    }
 
     pub fn id(self) -> &'static str {
         match self {
@@ -35,6 +54,8 @@ impl Format {
             Format::Bmp => "bmp",
             Format::Tiff => "tiff",
             Format::Gif => "gif",
+            Format::Pdf => "pdf",
+            Format::Txt => "txt",
         }
     }
 
@@ -46,6 +67,8 @@ impl Format {
             Format::Bmp => "BMP",
             Format::Tiff => "TIFF",
             Format::Gif => "GIF",
+            Format::Pdf => "PDF",
+            Format::Txt => "Text",
         }
     }
 
@@ -58,6 +81,8 @@ impl Format {
             Format::Bmp => "bmp",
             Format::Tiff => "tiff",
             Format::Gif => "gif",
+            Format::Pdf => "pdf",
+            Format::Txt => "txt",
         }
     }
 
@@ -70,6 +95,8 @@ impl Format {
             Format::Bmp => &["bmp", "dib"],
             Format::Tiff => &["tif", "tiff"],
             Format::Gif => &["gif"],
+            Format::Pdf => &["pdf"],
+            Format::Txt => &["txt", "text"],
         }
     }
 
@@ -81,6 +108,8 @@ impl Format {
             Format::Bmp => "image/bmp",
             Format::Tiff => "image/tiff",
             Format::Gif => "image/gif",
+            Format::Pdf => "application/pdf",
+            Format::Txt => "text/plain",
         }
     }
 
@@ -113,15 +142,27 @@ impl Format {
             .find(|f| f.extensions().contains(&e.as_str()))
     }
 
-    pub(crate) fn image_format(self) -> image::ImageFormat {
-        match self {
+    /// The `image` crate codec, for raster formats only.
+    pub(crate) fn image_format(self) -> Option<image::ImageFormat> {
+        Some(match self {
             Format::Png => image::ImageFormat::Png,
             Format::Jpeg => image::ImageFormat::Jpeg,
             Format::Webp => image::ImageFormat::WebP,
             Format::Bmp => image::ImageFormat::Bmp,
             Format::Tiff => image::ImageFormat::Tiff,
             Format::Gif => image::ImageFormat::Gif,
-        }
+            Format::Pdf | Format::Txt => return None,
+        })
+    }
+
+    /// The `image` crate codec; errors for non-raster formats.
+    pub(crate) fn codec(self) -> crate::Result<image::ImageFormat> {
+        self.image_format().ok_or_else(|| {
+            crate::RadialError::new(
+                crate::ErrorKind::Internal,
+                format!("{} is not an image format.", self.label()),
+            )
+        })
     }
 }
 

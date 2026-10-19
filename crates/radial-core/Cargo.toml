@@ -19,6 +19,13 @@ ab_glyph = "0.2.32"
 kamadak-exif = "0.6.1"
 crc32fast = "1.4"
 fdeflate = "0.3.7"
+# PDF: rendering, text, redaction, annotation and crop via PDFium (loaded at
+# runtime from a pinned build, see scripts/fetch-pdfium.mjs) …
+pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7881", "image_025", "thread_safe"] }
+# … and object-level edits (metadata, stream compression) via lopdf.
+lopdf = { version = "0.45.0", default-features = false }
+# Already used by lopdf; used directly for PNG-predicted image streams.
+flate2 = "1.1"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

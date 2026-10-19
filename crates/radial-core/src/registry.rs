@@ -13,20 +13,30 @@ use serde::Serialize;
 pub enum EngineId {
     /// Pure-Rust `image` crate plus libwebp, compiled into RADIAL.
     NativeImage,
+    /// PDFium (bundled shared library) plus lopdf.
+    Pdfium,
+    /// lopdf, compiled into RADIAL: writes images into new PDFs.
+    PdfWriter,
 }
 
 impl EngineId {
     pub fn label(self) -> &'static str {
         match self {
             EngineId::NativeImage => "Built-in image engine",
+            EngineId::Pdfium => "PDF engine (PDFium)",
+            EngineId::PdfWriter => "Built-in PDF writer",
         }
     }
 
-    /// Built-in engines are always present. External engines (FFmpeg,
-    /// LibreOffice) will report availability from a runtime probe.
+    /// Built-in engines are always present. Engines loaded at runtime
+    /// (PDFium) report availability from a probe.
     pub fn status(self) -> EngineStatus {
         match self {
-            EngineId::NativeImage => EngineStatus::Available,
+            EngineId::NativeImage | EngineId::PdfWriter => EngineStatus::Available,
+            EngineId::Pdfium => match crate::pdf::missing_reason() {
+                None => EngineStatus::Available,
+                Some(hint) => EngineStatus::Missing { hint },
+            },
         }
     }
 }
@@ -67,6 +77,18 @@ pub enum OptionSpec {
     MetadataFields,
     /// Remove all metadata (Metadata).
     StripMetadata,
+    /// Choose a PDF page (PDF → image, and the editor's page).
+    Page,
+    /// Rendering resolution (PDF → image).
+    Dpi {
+        min: u32,
+        max: u32,
+        default: u32,
+    },
+    /// Apply to the current page or every page (Crop on PDFs).
+    PageScope,
+    /// Words or phrases to find and remove (Redact on PDFs).
+    Terms,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -114,12 +136,17 @@ impl Default for Registry {
 impl Registry {
     pub fn new() -> Self {
         let mut caps = Vec::new();
-        for from in Format::ALL {
-            for to in Format::ALL {
+        for from in Format::IMAGES {
+            for to in Format::IMAGES {
                 if from != to {
                     caps.push(image_capability(from, to));
                 }
             }
+            caps.push(image_to_pdf(from));
+        }
+        let pdfium = EngineId::Pdfium.status();
+        for to in [Format::Png, Format::Jpeg, Format::Txt] {
+            caps.push(pdf_capability(to, pdfium.clone()));
         }
         Self { caps }
     }
@@ -202,6 +229,7 @@ fn image_capability(from: Format, to: Format) -> Capability {
         Format::Tiff => limitations
             .push("LZW-compressed (lossless). Colour profiles are not stored in TIFF output."),
         Format::Png => {}
+        Format::Pdf | Format::Txt => {}
     }
 
     let engine = EngineId::NativeImage;
@@ -214,6 +242,81 @@ fn image_capability(from: Format, to: Format) -> Capability {
         engine_label: engine.label(),
         available: engine_status == EngineStatus::Available,
         engine_status,
+        options,
+        limitations,
+        progress: ProgressKind::Stages,
+        cancellation: CancelKind::BetweenStages,
+    }
+}
+
+fn image_to_pdf(from: Format) -> Capability {
+    let engine = EngineId::PdfWriter;
+    let mut limitations = vec![
+        "The image is placed on an A4 page (portrait or landscape to match), centred, never enlarged past 96 DPI.",
+    ];
+    if from == Format::Jpeg {
+        limitations.push("JPEG data is embedded unchanged unless the photo needs rotating.");
+    } else {
+        limitations.push("Pixels are stored losslessly; 16-bit images become 8-bit.");
+    }
+    if from == Format::Gif || from == Format::Webp {
+        limitations.push("Only the first frame of an animation is used.");
+    }
+    Capability {
+        from,
+        to: Format::Pdf,
+        to_label: Format::Pdf.label(),
+        engine,
+        engine_label: engine.label(),
+        engine_status: EngineStatus::Available,
+        available: true,
+        options: Vec::new(),
+        limitations,
+        progress: ProgressKind::Stages,
+        cancellation: CancelKind::BetweenStages,
+    }
+}
+
+fn pdf_capability(to: Format, status: EngineStatus) -> Capability {
+    let engine = EngineId::Pdfium;
+    let dpi = OptionSpec::Dpi {
+        min: crate::pdf::MIN_DPI,
+        max: crate::pdf::MAX_DPI,
+        default: crate::pdf::DEFAULT_DPI,
+    };
+    let (options, limitations) = match to {
+        Format::Txt => (
+            Vec::new(),
+            vec![
+                "Extracts the text of every page in reading order; layout, tables and images are not kept.",
+                "Scanned pages have no text layer and produce nothing (no OCR).",
+            ],
+        ),
+        Format::Jpeg => (
+            vec![
+                OptionSpec::Page,
+                dpi,
+                OptionSpec::Quality {
+                    min: 1,
+                    max: 100,
+                    default: crate::options::DEFAULT_JPEG_QUALITY,
+                },
+            ],
+            vec!["Exports one page as a picture; its text is no longer selectable."],
+        ),
+        _ => (
+            vec![OptionSpec::Page, dpi],
+            vec!["Exports one page as a picture; its text is no longer selectable."],
+        ),
+    };
+    Capability {
+        from: Format::Pdf,
+        to,
+        to_label: to.label(),
+        engine,
+        engine_label: engine.label(),
+        available: status == EngineStatus::Available,
+        engine_status: status,
         options,
         limitations,
         progress: ProgressKind::Stages,

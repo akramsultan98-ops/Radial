@@ -16,6 +16,7 @@ pub mod ops;
 pub mod options;
 pub mod output;
 pub mod paths;
+pub mod pdf;
 pub mod registry;
 pub mod settings;
 mod store;

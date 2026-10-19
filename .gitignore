@@ -30,3 +30,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# PDFium binaries are downloaded by scripts/fetch-pdfium.mjs (checksum-pinned)
+src-tauri/resources/pdfium/

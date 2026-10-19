@@ -57,6 +57,7 @@ fn req(src: &Path, op: OperationId, dir: &Path, stem: &str) -> OperationRequest 
         options: ConvertOptions::default(),
         metadata: MetadataEdit::default(),
         max_dimension: None,
+        pdf: Default::default(),
     }
 }
 
@@ -99,7 +100,7 @@ fn operations_depend_on_the_file() {
     assert_eq!(ids, OperationId::ALL.to_vec());
     assert!(ops.iter().all(|o| o.available));
     let convert = ops.iter().find(|o| o.id == OperationId::Convert).unwrap();
-    assert_eq!(convert.targets.len(), 5);
+    assert_eq!(convert.targets.len(), 6, "5 image formats + PDF");
 
     let bmp = save(
         dir.path(),
@@ -309,6 +310,7 @@ fn shape(kind: ShapeKind) -> Shape {
         filled: false,
         text: String::new(),
         size: 0.1,
+        page: 0,
     }
 }
 

@@ -37,6 +37,7 @@ fn write_sample(dir: &Path, name: &str, format: Format, img: &DynamicImage) -> P
         Format::Bmp => image::ImageFormat::Bmp,
         Format::Tiff => image::ImageFormat::Tiff,
         Format::Gif => image::ImageFormat::Gif,
+        Format::Pdf | Format::Txt => unreachable!("not an image"),
     };
     img.save_with_format(&path, fmt).unwrap();
     path
@@ -79,7 +80,8 @@ fn every_registered_conversion_produces_a_verified_file() {
     let registry = Registry::new();
     let dir = tempfile::tempdir().unwrap();
     let mut checked = 0;
-    for from in registry.sources() {
+    // Image → image only; PDF conversions are covered in tests/pdf.rs.
+    for from in registry.sources().into_iter().filter(|f| f.is_image()) {
         let src = write_sample(
             dir.path(),
             &format!("src.{}", from.extension()),
@@ -87,7 +89,11 @@ fn every_registered_conversion_produces_a_verified_file() {
             &sample(false),
         );
         assert_eq!(inspect(&src).unwrap().format, Some(from));
-        for cap in registry.targets_for(from) {
+        for cap in registry
+            .targets_for(from)
+            .into_iter()
+            .filter(|c| c.to.is_image())
+        {
             let stem = format!("{}-to-{}", from.id(), cap.to.id());
             let out = run(&request(&src, cap.to, dir.path(), &stem))
                 .unwrap_or_else(|e| panic!("{stem}: {}", e.message));
@@ -508,7 +514,7 @@ fn invalid_inputs_are_classified() {
     );
     assert_eq!(
         problem(&write("doc.pdf", b"%PDF-1.7\n...")),
-        Some(ErrorKind::UnsupportedFormat)
+        Some(ErrorKind::CorruptFile)
     );
 
     let good = std::fs::read(write_sample(
@@ -603,7 +609,7 @@ fn preview_is_downscaled_and_reflects_edits() {
         image::Rgb([10, 200, 30]),
     ));
     let src = write_sample(dir.path(), "big.png", Format::Png, &big);
-    let base = engine::preview_base(&src, 300).unwrap();
+    let base = engine::preview_base(&src, 0, 300).unwrap();
     assert_eq!(base.dimensions(), (300, 150));
     let bytes = engine::render_preview(
         &base,
@@ -623,8 +629,11 @@ fn preview_is_downscaled_and_reflects_edits() {
     );
 
     let t = write_sample(dir.path(), "t.png", Format::Png, &sample(true));
-    let bytes =
-        engine::render_preview(&engine::preview_base(&t, 512).unwrap(), &Edits::default()).unwrap();
+    let bytes = engine::render_preview(
+        &engine::preview_base(&t, 0, 512).unwrap(),
+        &Edits::default(),
+    )
+    .unwrap();
     assert_eq!(
         detect::sniff(&bytes),
         Some(Recognized::Convertible(Format::Png)),

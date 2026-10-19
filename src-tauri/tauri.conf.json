@@ -43,11 +43,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "publisher": "RADIAL",
     "category": "Utility",
-    "shortDescription": "Local-first file conversion with a radial format selector",
-    "longDescription": "RADIAL converts images locally on your computer. Drop a file, pick a format from the radial menu, and save. Nothing is uploaded.",
+    "shortDescription": "Local-first file toolkit: convert, compress, redact and annotate images and PDFs",
+    "longDescription": "RADIAL converts, compresses, crops, annotates and redacts images and PDFs locally on your computer. Drop a file and pick an action from the radial menu. Nothing is uploaded.",
     "copyright": "© 2026 RADIAL contributors",
     "icon": [
       "icons/32x32.png",
@@ -57,8 +60,16 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" },
-      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false }
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    },
+    "resources": {
+      "resources/pdfium/": "pdfium/"
     }
   }
 }

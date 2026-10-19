@@ -68,7 +68,7 @@ pub struct Loaded {
 /// Decode `path` with the decoder for `format`, applying EXIF orientation.
 pub fn load(path: &Path, format: Format) -> Result<Loaded> {
     let file = File::open(path).map_err(|e| RadialError::from_io(&e, "opening the source file"))?;
-    let mut reader = image::ImageReader::with_format(BufReader::new(file), format.image_format());
+    let mut reader = image::ImageReader::with_format(BufReader::new(file), format.codec()?);
     reader.limits(limits::decode_limits());
     let mut decoder = reader
         .into_decoder()
@@ -223,6 +223,7 @@ fn prepare(img: DynamicImage, target: Format, bg: Rgb) -> DynamicImage {
             D::ImageRgba32F(_) => D::ImageRgba16(img.to_rgba16()),
             other => other,
         },
+        Format::Pdf | Format::Txt => img,
         Format::Tiff => match img {
             D::ImageLuma8(_)
             | D::ImageLuma16(_)
@@ -343,7 +344,11 @@ fn encode<W: Write + std::io::Seek>(
                 .map_err(|e| RadialError::from_io(&e, "writing the output"))
         }
         Format::Tiff => encode_tiff(img, w),
-        Format::Bmp | Format::Gif => img.write_to(w, target.image_format()).map_err(enc_err),
+        Format::Bmp | Format::Gif => img.write_to(w, target.codec()?).map_err(enc_err),
+        Format::Pdf | Format::Txt => Err(RadialError::new(
+            ErrorKind::Internal,
+            "Not an image target.",
+        )),
     }
 }
 
@@ -493,7 +498,31 @@ pub fn image_job(
     check(cancel)?;
     on_stage(Stage::Decoding);
     let Loaded { image, icc } = load(source, from)?;
+    encode_job(
+        image,
+        icc.as_deref(),
+        target,
+        resolved,
+        out,
+        must_shrink_below,
+        cancel,
+        on_stage,
+    )
+}
 
+/// The second half of [`image_job`] for an already decoded image:
+/// process → encode → verify → persist.
+#[allow(clippy::too_many_arguments)]
+pub fn encode_job(
+    image: DynamicImage,
+    icc: Option<&[u8]>,
+    target: Format,
+    resolved: &Resolved,
+    out: &Path,
+    must_shrink_below: Option<u64>,
+    cancel: &AtomicBool,
+    mut on_stage: impl FnMut(Stage),
+) -> Result<ImageResult> {
     check(cancel)?;
     on_stage(Stage::Processing);
     let image = process(image, target, resolved);
@@ -504,7 +533,7 @@ pub fn image_job(
     let tmp = output::stage(out)?;
     {
         let mut w = BufWriter::new(tmp.as_file());
-        encode(&image, target, resolved, icc.as_deref(), &mut w)?;
+        encode(&image, target, resolved, icc, &mut w)?;
         w.flush()
             .map_err(|e| RadialError::from_io(&e, "writing the output"))?;
     }
@@ -564,8 +593,9 @@ pub fn convert(
     })
 }
 
-/// A downscaled, orientation-corrected copy of an image for on-screen preview.
-pub fn preview_base(path: &Path, max_dim: u32) -> Result<DynamicImage> {
+/// A downscaled, orientation-corrected copy of an image (or of one PDF page)
+/// for on-screen preview.
+pub fn preview_base(path: &Path, page: u32, max_dim: u32) -> Result<DynamicImage> {
     let info = detect::inspect(path)?;
     if let Some(p) = info.problem {
         return Err(p);
@@ -573,8 +603,11 @@ pub fn preview_base(path: &Path, max_dim: u32) -> Result<DynamicImage> {
     let format = info.format.ok_or_else(|| {
         RadialError::new(ErrorKind::UnsupportedFormat, "Cannot preview this file.")
     })?;
-    let img = load(path, format)?.image;
     let max_dim = max_dim.clamp(16, limits::MAX_PREVIEW_DIMENSION);
+    if format == Format::Pdf {
+        return crate::pdf::render_page(path, page, max_dim);
+    }
+    let img = load(path, format)?.image;
     Ok(if img.width() > max_dim || img.height() > max_dim {
         img.resize(max_dim, max_dim, FilterType::Triangle)
     } else {

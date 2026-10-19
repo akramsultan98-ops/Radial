@@ -20,6 +20,7 @@ pub struct PreviewEntry {
     pub path: PathBuf,
     pub modified: Option<std::time::SystemTime>,
     pub max_dim: u32,
+    pub page: u32,
     pub image: Arc<radial_core::image::DynamicImage>,
 }
 

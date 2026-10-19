@@ -61,6 +61,9 @@ pub struct Shape {
     /// Text height as a fraction of the shorter side.
     #[serde(default = "default_size")]
     pub size: f64,
+    /// PDF page (0-based) the shape belongs to; ignored for images.
+    #[serde(default)]
+    pub page: u32,
 }
 
 fn default_stroke() -> f64 {
@@ -309,6 +312,7 @@ mod tests {
             filled: false,
             text: String::new(),
             size: 0.1,
+            page: 0,
         }
     }
 

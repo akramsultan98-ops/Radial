@@ -14,6 +14,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // The bundled PDFium library ships in the app's resources.
+            if let Ok(res) = app.path().resource_dir() {
+                radial_core::pdf::configure([res.join("pdfium"), res.join("resources/pdfium")]);
+            }
             let data_dir = app.path().app_data_dir()?;
             let state = AppState::new(&data_dir);
             // Files passed on the command line ("Open with RADIAL").
