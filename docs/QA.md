@@ -1,3 +1,95 @@
+# QA report — v0.2.0
+
+Date: 2026-10-19. Environment: Linux x86-64 container, Rust 1.99.1, Node 22.22, WebKitGTK,
+Xvfb + openbox; plus GitHub Actions `windows-latest` (see *Windows*). The v0.1 report follows
+below.
+
+## Automated results (local, final tree)
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| Rust unit tests (core) | `cargo test -p radial-core --lib` | 40 passed |
+| Image conversions (v0.1 suite, all 30 pairs) | `--test conversions` | 22 passed |
+| Image operations | `--test operations` | 18 passed |
+| PDF engine on real PDFs | `--test pdf` | 14 passed |
+| Documents + action matrix | `--test documents` | 6 passed |
+| Shell (path allowlist) | `cargo test -p radial` | 1 passed |
+| Format / Clippy (`-D warnings`, Rust 1.99) | `cargo fmt --check`, `cargo clippy --workspace --all-targets` | clean |
+| TypeScript strict, ESLint | `npm run typecheck`, `npm run lint` | clean |
+| Frontend unit/component | `npm test` | 43 passed |
+| UI (Playwright, mock backend) | `npm run test:ui` | 47 passed (incl. 8 PDF, 3 Word) |
+| `npm audit` | | 0 vulnerabilities |
+
+`operation_matrix_matches_real_support` checks, for PNG/JPEG/WebP/TIFF/BMP/GIF, a normal PDF, a
+restricted PDF, a Word file and a text file, that exactly the documented actions are available and
+that the backend refuses every other one without writing anything.
+
+## Independent verification of outputs
+
+Outputs were produced by RADIAL and checked with tools that share no code with it:
+
+| Output | Tool | Result |
+| --- | --- | --- |
+| PNG → JPEG/WebP/BMP/TIFF/GIF, JPEG → PNG | ImageMagick `identify` | all decode, 320×200, alpha kept where supported |
+| Image → PDF | poppler `pdfinfo`, `pdfimages` | 1 A4 page; image + soft mask for transparency |
+| Image redaction (GPS-tagged JPEG) | ImageMagick, Pillow | no EXIF/GPS left; redacted pixels are 0 |
+| JPEG metadata edit | Pillow | new title; image data untouched |
+| PDF redaction (areas + 2 search terms, rotated page) | pypdf (every object decoded), poppler `pdftotext`, `pdfimages` | see below |
+| PDF annotate / crop / compress / text | poppler render + `pdftotext` | correct placement on rotated pages; text identical after compress |
+| TXT → PDF | poppler `pdftotext` | text identical to source (whitespace ignored); 4 pages |
+| DOCX properties strip | python-docx, LibreOffice 24.2 (converted to PDF) | opens; author/last-modified-by/title empty; body unchanged |
+| DOCX → text | content compared with python-docx paragraphs | paragraphs, tabs and table cells present |
+
+**Redaction recoverability.** On the redacted file: one revision (`%%EOF` ×1, no incremental
+update holding old content), no Info dictionary or XMP, 14 objects in total, no text layer on the
+redacted pages, exactly one image per redacted page, and none of the secrets (IBAN, e-mail, search
+terms, title, author) present in any decoded stream or in the raw bytes. The page image extracted
+with `pdfimages` has the black boxes burned into its pixels, including over the photo. Text that
+exists only in a bookmark or form value is reported and the redaction refused (test
+`redaction_refuses_text_it_cannot_remove`).
+
+## Native desktop QA (real app, real backend)
+
+Debug build under Xvfb, driven with xdotool. Screenshots `qa/screenshots/native/30`–`38`.
+
+| Check | Result |
+| --- | --- |
+| Open a 2-page PDF (page 2 `/Rotate 90`) | ✅ pages, size, protection shown; thumbnail rendered by PDFium (`30`) |
+| Redact an area on page 1 and a search term on the rotated page 2 | ✅ (`31`, `32`); output has no text, no title/author (poppler) |
+| Convert PDF → text, compress PDF | ✅ text file correct; 42% smaller, text unchanged (`33`, `34`) |
+| Open a Word file | ✅ only Convert and Metadata enabled, others greyed with reasons (`35`) |
+| Word properties: load real values, remove all | ✅ (`36`, `37`); python-docx confirms empty properties |
+| Text file → PDF | ✅ (`38`); poppler text equals source |
+
+Native QA found and fixed: image-specific "remove all metadata" hint and a status bar naming the
+image engine for Word/text files.
+
+## Windows
+
+CI run [39300376609](https://github.com/akramsultan98-ops/Radial/actions/runs/39300376609)
+(`windows-latest`, Rust 1.99.1, commit `052437b`) — all steps passed:
+
+- `cargo test -p radial-core` on Windows: image, PDF (real `pdfium.dll`), Word and text suites.
+- `npm run tauri build`: MSI and NSIS installers built (artifact `radial-windows-installers`).
+- The MSI was unpacked with `msiexec /a`: it contains `radial.exe`, `pdfium.dll`, PDFium's
+  `LICENSE`, `THIRD-PARTY-NOTICES.md` and the font licences.
+- The NSIS installer was run silently; the **installed** `radial.exe --self-test` loaded the bundled
+  PDFium and ran PNG → PDF, PDF → PNG and TXT → PDF: `PASS`.
+
+**No interactive Windows session was available:** the WebView2 interface, Explorer drag-and-drop,
+the native dialogs and SmartScreen were not exercised by a person on Windows.
+
+## Not yet verified (v0.2)
+
+- Interactive use on Windows 10/11 (see above).
+- PDFs from the wild beyond the generated fixtures: XFA forms, PDFs with broken cross-reference
+  tables, very large (1000+ page) documents, CJK-only fonts.
+- Word documents produced by Word itself (fixtures come from python-docx; LibreOffice reads the
+  rewritten package).
+- Arabic/Hebrew text in annotations (known limitation: not shaped).
+
+---
+
 # QA report — v0.1.0
 
 Date: 2026-10-18. Environment: Linux x86-64 container (Ubuntu 24.04), Rust 1.97, Node 22.22,

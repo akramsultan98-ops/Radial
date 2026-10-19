@@ -596,11 +596,13 @@ export function BackgroundPanel({
 export function MetadataPanel({
   backend,
   path,
+  format,
   edit,
   onEdit,
 }: {
   backend: Backend | null;
   path: string;
+  format: FileInfo["format"];
   edit: MetadataEdit;
   onEdit: (patch: Partial<MetadataEdit>) => void;
 }) {
@@ -655,7 +657,13 @@ export function MetadataPanel({
         <div className="row">
           <span id={`${id}-strip`} className="row__label">
             Remove all metadata
-            <span className="field__hint">Location, camera details, text and comments</span>
+            <span className="field__hint">
+              {format === "pdf"
+                ? "Title, author, dates and the XMP copy"
+                : format === "docx"
+                  ? "Author, last modified by, dates, company and manager"
+                  : "Location, camera details, text and comments"}
+            </span>
           </span>
           <button type="button" role="switch" aria-checked={edit.stripAll} aria-labelledby={`${id}-strip`} className="switch" onClick={() => onEdit({ stripAll: !edit.stripAll })} />
         </div>

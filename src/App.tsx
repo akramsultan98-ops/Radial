@@ -925,7 +925,16 @@ export function App() {
       </main>
       <StatusBar
         message={status}
-        engine={op?.engineLabel ?? (isPdf ? "PDF engine (PDFium)" : "Built-in image engine")}
+        engine={
+          op?.engineLabel ??
+          (isPdf
+            ? "PDF engine (PDFium)"
+            : file?.format === "docx"
+              ? "Built-in Word reader"
+              : file?.format === "txt"
+                ? "Built-in text engine"
+                : "Built-in image engine")
+        }
       />
 
       {overlay === "history" && (

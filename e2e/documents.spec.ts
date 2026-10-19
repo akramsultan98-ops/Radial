@@ -29,7 +29,7 @@ test.describe("Word documents", () => {
   test("edit properties and save a copy", async ({ page }) => {
     await chooseOperation(page, "metadata");
     await expect(page.getByText("Jane Doe")).toBeVisible();
-    await page.getByLabel("Author").fill("Account team");
+    await page.getByRole("textbox", { name: "Author" }).fill("Account team");
     await shot(page, "51-docx-properties");
     await page.getByRole("button", { name: /Save metadata/ }).click();
     await expect(page.getByRole("heading", { name: "Document saved" })).toBeVisible();

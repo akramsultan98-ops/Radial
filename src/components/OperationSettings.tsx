@@ -214,6 +214,7 @@ export function OperationSettings({
           <MetadataPanel
             backend={backend}
             path={file.path}
+            format={file.format}
             edit={state.metadata}
             onEdit={(patch) => dispatch({ type: "metadata_changed", patch })}
           />
