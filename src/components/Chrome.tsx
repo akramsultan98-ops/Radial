@@ -5,8 +5,8 @@ import { IconClose, IconHistory, IconOpen, IconSettings, IconShield } from "./Ic
 
 const STEPS = [
   { key: "file", label: "File" },
-  { key: "format", label: "Format" },
-  { key: "options", label: "Options" },
+  { key: "action", label: "Action" },
+  { key: "settings", label: "Settings" },
   { key: "save", label: "Save" },
 ] as const;
 
@@ -78,8 +78,8 @@ export function TopBar({ phase, busy, onOpen, onHistory, onSettings, historyCoun
           type="button"
           className="icon-btn"
           onClick={onHistory}
-          aria-label={`Recent conversions (${historyCount})`}
-          data-tip="Recent conversions"
+          aria-label={`Recent activity (${historyCount})`}
+          data-tip="Recent activity"
           data-tip-pos="left"
         >
           <IconHistory />

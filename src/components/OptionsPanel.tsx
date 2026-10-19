@@ -1,15 +1,17 @@
 // Conversion options. Only options the capability declares are shown.
 
 import { useId } from "react";
-import type { Capability, ConvertOptions, Edits, FileInfo } from "../lib/types";
+import type { ConvertOptions, Edits, FileInfo, OptionSpec } from "../lib/types";
 import { IconAdjust, IconCrop, IconLink, IconRotateLeft, IconRotateRight, IconUnlink } from "./Icons";
 
 interface Props {
-  cap: Capability;
+  specs: OptionSpec[];
   file: FileInfo;
   options: ConvertOptions;
   disabled: boolean;
   editing: boolean;
+  /** Hide the "preview edits" toggle (when the preview is always shown). */
+  hideEditorToggle?: boolean;
   onOptions: (patch: Partial<ConvertOptions>) => void;
   onEdits: (patch: Partial<Edits>) => void;
   onResetEdits: () => void;
@@ -31,10 +33,10 @@ export function editedSize(file: FileInfo, edits: Edits): { width: number; heigh
   return { width: w, height: h };
 }
 
-export function OptionsPanel({ cap, file, options, disabled, editing, onOptions, onEdits, onResetEdits, onToggleEditor, onCrop }: Props) {
+export function OptionsPanel({ specs, file, options, disabled, editing, hideEditorToggle = false, onOptions, onEdits, onResetEdits, onToggleEditor, onCrop }: Props) {
   const id = useId();
-  const has = (k: string) => cap.options.some((o) => o.kind === k);
-  const quality = cap.options.find((o) => o.kind === "quality");
+  const has = (k: string) => specs.some((o) => o.kind === k);
+  const quality = specs.find((o) => o.kind === "quality");
   const e = options.edits;
   const base = editedSize(file, e);
   const r = options.resize;
@@ -209,6 +211,7 @@ export function OptionsPanel({ cap, file, options, disabled, editing, onOptions,
                   <IconCrop />
                 </button>
               )}
+              {!hideEditorToggle && (
               <button
                 type="button"
                 className="icon-btn"
@@ -220,6 +223,7 @@ export function OptionsPanel({ cap, file, options, disabled, editing, onOptions,
               >
                 <IconAdjust />
               </button>
+              )}
             </div>
           </div>
           <Slider id={`${id}-b`} label="Brightness" value={e.brightness} onChange={(v) => onEdits({ brightness: v })} />

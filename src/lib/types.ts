@@ -18,6 +18,7 @@ export type ErrorKind =
   | "invalid_options"
   | "path_not_allowed"
   | "cancelled"
+  | "no_reduction"
   | "engine_missing"
   | "engine_failed"
   | "io"
@@ -59,7 +60,57 @@ export type OptionSpec =
   | { kind: "resize" }
   | { kind: "rotate" }
   | { kind: "crop" }
-  | { kind: "brightness_contrast" };
+  | { kind: "brightness_contrast" }
+  | { kind: "max_dimension" }
+  | { kind: "padding" }
+  | { kind: "optimize" }
+  | { kind: "shapes" }
+  | { kind: "regions" }
+  | { kind: "metadata_fields" }
+  | { kind: "strip_metadata" };
+
+export type OperationId =
+  | "convert"
+  | "compress"
+  | "edit"
+  | "crop"
+  | "annotate"
+  | "redact"
+  | "background"
+  | "metadata";
+
+export interface Operation {
+  id: OperationId;
+  label: string;
+  description: string;
+  available: boolean;
+  reason: string | null;
+  engineLabel: string;
+  options: OptionSpec[];
+  limitations: string[];
+  /** Format of the result; null when the user chooses (Convert). */
+  outputFormat: Format | null;
+  targets: Capability[];
+  preview: boolean;
+  cancellation: "between_stages";
+}
+
+export type ShapeKind = "rect" | "ellipse" | "line" | "arrow" | "text";
+
+/** Coordinates are fractions (0–1) of the edited image; stroke and size are
+ *  fractions of its shorter side. */
+export interface Shape {
+  kind: ShapeKind;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  stroke: number;
+  filled: boolean;
+  text: string;
+  size: number;
+}
 
 export type EngineStatus = { state: "available" } | { state: "missing"; hint: string };
 
@@ -103,23 +154,56 @@ export interface ConvertOptions {
   background: string | null;
   resize: Resize | null;
   edits: Edits;
+  annotations: Shape[];
+  redactions: CropRect[];
+  padding: number;
+  flatten: boolean;
+  optimize: boolean;
 }
 
-export interface ConvertRequest {
+export interface MetadataEdit {
+  /** Empty strings remove a field. */
+  fields: Record<string, string>;
+  stripAll: boolean;
+}
+
+export interface OperationRequest {
   source: string;
-  target: Format;
+  operation: OperationId;
+  target: Format | null;
   destDir: string;
   stem: string;
   options: ConvertOptions;
+  metadata: MetadataEdit;
+  maxDimension: number | null;
 }
 
-export interface ConvertOutcome {
+export interface OperationOutcome {
   outputPath: string;
+  operation: OperationId;
   sourceFormat: Format;
   format: Format;
-  width: number;
-  height: number;
+  width: number | null;
+  height: number | null;
   sizeBytes: number;
+  sourceSizeBytes: number;
+  notes: string[];
+}
+
+export interface MetaField {
+  key: string;
+  label: string;
+  value: string | null;
+  editable: boolean;
+}
+
+export interface MetadataReport {
+  fields: MetaField[];
+  details: { label: string; value: string }[];
+  canEdit: boolean;
+  canStrip: boolean;
+  hasLocation: boolean;
+  notes: string[];
 }
 
 export type JobStage = "queued" | "decoding" | "processing" | "encoding" | "verifying";
@@ -135,6 +219,7 @@ export interface HistoryEntry {
   sourceName: string;
   sourcePath: string;
   sourceFormat: Format;
+  operation: OperationId;
   targetFormat: Format;
   timestamp: number;
   status: "succeeded" | "failed" | "cancelled";
@@ -148,6 +233,7 @@ export interface HistoryEntry {
 
 export interface RetryPlan {
   file: ImportResult;
+  operation: OperationId;
   target: Format;
   destDir: string;
   stem: string;
@@ -164,3 +250,5 @@ export interface Settings {
 }
 
 export const NO_EDITS: Edits = { rotate: 0, crop: null, brightness: 0, contrast: 0 };
+
+export const EMPTY_METADATA_EDIT: MetadataEdit = { fields: {}, stripAll: false };

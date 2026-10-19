@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import type { Backend } from "../lib/backend";
 import { FORMAT_EXT, shortenPath } from "../lib/format";
-import type { Format } from "../lib/types";
+import type { Format, OperationId } from "../lib/types";
 import type { Output } from "../state/workflow";
 import { IconFolder } from "./Icons";
 
@@ -26,6 +26,7 @@ export function stemProblem(stem: string): string | null {
 interface Props {
   backend: Backend | null;
   source: string;
+  operation: OperationId;
   target: Format;
   output: Output | null;
   disabled: boolean;
@@ -33,11 +34,11 @@ interface Props {
   onChooseFolder: () => void;
 }
 
-export function OutputPanel({ backend, source, target, output, disabled, onChange, onChooseFolder }: Props) {
+export function OutputPanel({ backend, source, operation, target, output, disabled, onChange, onChooseFolder }: Props) {
   const id = useId();
   const [check, setCheck] = useState<{ key: string; alternative: string | null } | null>(null);
   const problem = output ? stemProblem(output.stem) : null;
-  const key = output ? `${source}|${target}|${output.destDir}|${output.stem.trim()}` : "";
+  const key = output ? `${source}|${operation}|${target}|${output.destDir}|${output.stem.trim()}` : "";
   const taken = check?.key === key ? check.alternative : null;
 
   // Ask the backend whether the name is free (debounced).
@@ -47,7 +48,7 @@ export function OutputPanel({ backend, source, target, output, disabled, onChang
     const stem = output.stem.trim();
     const t = setTimeout(() => {
       backend
-        .suggestOutput(source, target, output.destDir, stem)
+        .suggestOutput(source, operation, target, output.destDir, stem)
         .then((s) => alive && setCheck({ key, alternative: s.stem !== stem ? s.stem : null }))
         .catch(() => alive && setCheck({ key, alternative: null }));
     }, 250);
@@ -55,7 +56,7 @@ export function OutputPanel({ backend, source, target, output, disabled, onChang
       alive = false;
       clearTimeout(t);
     };
-  }, [backend, source, target, output, problem, key]);
+  }, [backend, source, operation, target, output, problem, key]);
 
   if (!output) return <p className="muted">Preparing destination…</p>;
 

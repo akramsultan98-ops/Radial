@@ -213,6 +213,14 @@
     repeating-conic-gradient(#1b1f29 0% 25%, #151821 0% 50%) 50% / 12px 12px;
   box-shadow: 0 0 0 1px var(--line-2), 0 10px 24px rgba(0, 0, 0, 0.5);
 }
+.orb__thumb--opaque {
+  background: transparent;
+  box-shadow: none;
+}
+.orb__thumb--opaque img {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--line-2), 0 10px 24px rgba(0, 0, 0, 0.5);
+}
 .orb__thumb img {
   max-width: 100%;
   max-height: 100%;

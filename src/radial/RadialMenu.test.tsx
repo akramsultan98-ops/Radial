@@ -1,28 +1,22 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Capability, Format } from "../lib/types";
-import { RadialMenu } from "./RadialMenu";
+import { RadialMenu, type RadialItem } from "./RadialMenu";
 
-const cap = (to: Format, available = true): Capability => ({
-  from: "png",
-  to,
-  toLabel: to.toUpperCase(),
-  engine: "native_image",
-  engineLabel: "Built-in",
-  engineStatus: available ? { state: "available" } : { state: "missing", hint: "Install FFmpeg" },
+const cap = (id: string, available = true): RadialItem => ({
+  id,
+  label: id.toUpperCase(),
+  icon: <svg />,
   available,
-  options: [],
-  limitations: [],
-  progress: "stages",
-  cancellation: "between_stages",
+  action: `Convert to ${id.toUpperCase()}`,
+  reason: available ? null : "Install FFmpeg",
 });
 
 const caps = [cap("jpeg"), cap("webp"), cap("bmp", false), cap("tiff")];
 
-function setup(selected: Format | null = null, busy = false) {
+function setup(selected: string | null = null, busy = false) {
   const onSelect = vi.fn();
   render(
-    <RadialMenu capabilities={caps} selected={selected} onSelect={onSelect} size={480} busy={busy} sourceLabel="PNG">
+    <RadialMenu items={caps} label="Output format" selected={selected} onSelect={onSelect} size={480} busy={busy} sourceLabel="PNG">
       <span>orb</span>
     </RadialMenu>,
   );
@@ -32,7 +26,7 @@ function setup(selected: Format | null = null, busy = false) {
 describe("RadialMenu", () => {
   it("renders one segment per capability, in registry order", () => {
     const { radios } = setup();
-    expect(radios.map((r) => r.getAttribute("data-format"))).toEqual(["jpeg", "webp", "bmp", "tiff"]);
+    expect(radios.map((r) => r.getAttribute("data-id"))).toEqual(["jpeg", "webp", "bmp", "tiff"]);
     expect(screen.getByRole("radiogroup", { name: "Output format" })).toBeInTheDocument();
   });
 

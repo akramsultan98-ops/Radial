@@ -10,6 +10,15 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 webp = { version = "0.3.1", default-features = false }
 # Same version `image` uses; called directly to write LZW + the ExtraSamples tag.
 tiff = { version = "0.11.3", default-features = false, features = ["lzw"] }
+# Lossless PNG optimisation for Compress.
+oxipng = { version = "10.2.1", default-features = false }
+# Drawing annotations and redaction boxes onto images.
+imageproc = { version = "0.27.0", default-features = false, features = ["text"] }
+ab_glyph = "0.2.32"
+# Reading and rewriting EXIF (lossless metadata edits).
+kamadak-exif = "0.6.1"
+crc32fast = "1.4"
+fdeflate = "0.3.7"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

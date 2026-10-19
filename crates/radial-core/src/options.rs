@@ -1,5 +1,6 @@
 //! Conversion options supplied by the UI, and their validation.
 
+use crate::draw::{self, Shape};
 use crate::error::{ErrorKind, RadialError, Result};
 use crate::format::Format;
 use crate::limits::MAX_DIMENSION;
@@ -16,7 +17,19 @@ pub struct ConvertOptions {
     pub background: Option<String>,
     pub resize: Option<Resize>,
     pub edits: Edits,
+    /// Drawn into the pixels after resize (fractions of the edited image).
+    pub annotations: Vec<Shape>,
+    /// Areas replaced with opaque black after everything else.
+    pub redactions: Vec<CropRect>,
+    /// Border added around the image, in output pixels, filled with the background.
+    pub padding: u32,
+    /// Composite transparency onto the background even if the target keeps alpha.
+    pub flatten: bool,
+    /// Run lossless optimisation (PNG) — used by Compress.
+    pub optimize: bool,
 }
+
+pub const MAX_PADDING: u32 = 5000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,6 +101,11 @@ pub struct Resolved {
     pub background: Rgb,
     pub resize: Option<Resize>,
     pub edits: Edits,
+    pub annotations: Vec<Shape>,
+    pub redactions: Vec<CropRect>,
+    pub padding: u32,
+    pub flatten: bool,
+    pub optimize: bool,
 }
 
 impl ConvertOptions {
@@ -153,12 +171,22 @@ impl ConvertOptions {
                 return bad("The crop area must lie inside the image.");
             }
         }
+        draw::validate_shapes(&self.annotations)?;
+        draw::validate_regions(&self.redactions)?;
+        if self.padding > MAX_PADDING {
+            return bad("Padding is too large.");
+        }
         Ok(Resolved {
             quality,
             lossless: self.lossless,
             background,
             resize: self.resize,
             edits: e,
+            annotations: self.annotations.clone(),
+            redactions: self.redactions.clone(),
+            padding: self.padding,
+            flatten: self.flatten,
+            optimize: self.optimize,
         })
     }
 }
@@ -270,6 +298,7 @@ mod tests {
                 brightness: -20,
                 contrast: 30,
             },
+            ..Default::default()
         };
         let r = o.validate(Format::Jpeg).unwrap();
         assert_eq!(r.background, Rgb([0x1a, 0x2b, 0x3c]));

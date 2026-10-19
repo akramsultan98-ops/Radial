@@ -1,6 +1,6 @@
 // Display helpers. Pure functions; unit tested.
 
-import type { ErrorKind, Format, JobStage } from "./types";
+import type { ErrorKind, Format, JobStage, OperationId } from "./types";
 
 export const FORMAT_LABEL: Record<Format, string> = {
   png: "PNG",
@@ -9,6 +9,17 @@ export const FORMAT_LABEL: Record<Format, string> = {
   bmp: "BMP",
   tiff: "TIFF",
   gif: "GIF",
+};
+
+export const OPERATION_LABEL: Record<OperationId, string> = {
+  convert: "Convert",
+  compress: "Compress",
+  edit: "Edit",
+  crop: "Crop",
+  annotate: "Annotate",
+  redact: "Redact",
+  background: "Background",
+  metadata: "Metadata",
 };
 
 export const FORMAT_EXT: Record<Format, string> = {
@@ -89,6 +100,7 @@ export function recoveryFor(kind: ErrorKind): Recovery {
     case "insufficient_storage":
       return "choose_folder";
     case "invalid_options":
+    case "no_reduction":
       return "adjust_options";
     case "cancelled":
     case "io":

@@ -2,14 +2,16 @@
 // `Backend`; in the desktop app that is Tauri IPC, in UI tests a mock.
 
 import type {
-  Capability,
-  ConvertOutcome,
-  ConvertRequest,
   Edits,
   Format,
   HistoryEntry,
   ImportResult,
   JobStage,
+  MetadataReport,
+  Operation,
+  OperationId,
+  OperationOutcome,
+  OperationRequest,
   OutputSuggestion,
   RadialError,
   RetryPlan,
@@ -25,9 +27,17 @@ export interface Backend {
   pickFiles(): Promise<ImportResult[]>;
   pickDirectory(): Promise<string | null>;
   sourceFormats(): Promise<Format[]>;
-  capabilities(format: Format): Promise<Capability[]>;
-  suggestOutput(source: string, target: Format, destDir?: string, stem?: string): Promise<OutputSuggestion>;
-  convert(jobId: string, request: ConvertRequest): Promise<ConvertOutcome>;
+  /** Operations the registry offers for a file the user opened. */
+  operations(path: string): Promise<Operation[]>;
+  readMetadata(path: string): Promise<MetadataReport>;
+  suggestOutput(
+    source: string,
+    operation: OperationId,
+    target: Format,
+    destDir?: string,
+    stem?: string,
+  ): Promise<OutputSuggestion>;
+  runOperation(jobId: string, request: OperationRequest): Promise<OperationOutcome>;
   cancel(jobId: string): Promise<boolean>;
   /** Rendered preview bytes (JPEG or PNG). */
   preview(path: string, edits: Edits, maxDim: number): Promise<Blob>;

@@ -116,6 +116,9 @@
   animation: fade-up var(--dur-3) var(--ease-out) both;
 }
 .workspace__hint {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--text-3);
   text-align: center;

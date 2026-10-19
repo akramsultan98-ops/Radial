@@ -1,6 +1,6 @@
 import type { Backend } from "../lib/backend";
 import { FORMAT_LABEL, STAGES } from "../lib/format";
-import type { Edits, FileInfo, Format, JobStage } from "../lib/types";
+import type { Edits, FileInfo, JobStage } from "../lib/types";
 import { usePreview } from "../state/usePreview";
 import { IconArrowRight } from "./Icons";
 
@@ -8,12 +8,13 @@ interface Props {
   backend: Backend | null;
   file: FileInfo;
   edits: Edits;
-  target: Format | null;
+  /** Where the file is going, e.g. "JPEG" or "Compress". */
+  route: string | null;
   stage: JobStage | null;
 }
 
 /** The selected file, shown inside the radial ring. */
-export function FileOrb({ backend, file, edits, target, stage }: Props) {
+export function FileOrb({ backend, file, edits, route, stage }: Props) {
   const preview = usePreview(backend, file.path, edits, 320);
   const from = file.format ? FORMAT_LABEL[file.format] : "?";
   const done = stage ? STAGES.indexOf(stage) : 0;
@@ -21,17 +22,19 @@ export function FileOrb({ backend, file, edits, target, stage }: Props) {
 
   return (
     <div className="orb">
-      <div className={`orb__thumb${preview.loading && !preview.url ? " orb__thumb--loading" : ""}`}>
+      <div
+        className={`orb__thumb${file.hasAlpha ? "" : " orb__thumb--opaque"}${preview.loading && !preview.url ? " orb__thumb--loading" : ""}`}
+      >
         {preview.url && <img src={preview.url} alt="" draggable={false} />}
       </div>
       <div className="orb__name truncate" title={file.name}>
         {file.name}
       </div>
-      {target ? (
+      {route ? (
         <div className="orb__route">
           {from}
           <IconArrowRight />
-          {FORMAT_LABEL[target]}
+          {route}
         </div>
       ) : (
         <div className="orb__meta">

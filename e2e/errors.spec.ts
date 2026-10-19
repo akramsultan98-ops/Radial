@@ -34,7 +34,7 @@ test.describe("errors and recovery", () => {
     await setStageDelay(page, 50);
     await failNext(page, "engine_failed", "The output could not be read back.");
     await page.keyboard.press("Control+Enter");
-    await expect(page.getByRole("heading", { name: "The conversion failed" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Processing failed" })).toBeVisible();
     await expect(page.getByRole("alert")).toContainText("could not be read back");
     await page.getByRole("button", { name: "Try again" }).click();
     await expect(page.getByRole("heading", { name: "Converted to WebP" })).toBeVisible();
@@ -59,7 +59,7 @@ test.describe("errors and recovery", () => {
     await page.keyboard.press("Control+Enter");
     await expect(page.getByRole("heading", { name: "Converting…" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("heading", { name: "Conversion cancelled" })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: "Cancelled" })).toBeVisible({ timeout: 5000 });
     await expect(page.getByText("Nothing was written to disk.")).toBeVisible();
     await shot(page, "12-cancelled");
     await page.getByRole("button", { name: "Back to options" }).click();
@@ -91,9 +91,9 @@ test.describe("errors and recovery", () => {
       ];
     });
     await page.getByRole("button", { name: "Choose file" }).click();
-    await expect(page.getByRole("heading", { name: "This file can't be converted" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "This file can't be opened" })).toBeVisible();
     await expect(page.getByText("PDF files are recognised but cannot be converted yet.").first()).toBeVisible();
-    await expect(page.getByRole("radiogroup", { name: "Output format" })).toHaveCount(0);
+    await expect(page.getByRole("radiogroup", { name: "Actions", exact: true })).toHaveCount(0);
     await shot(page, "13-rejected");
   });
 
@@ -108,7 +108,7 @@ test.describe("errors and recovery", () => {
         { type: "file", ...m.sampleFile("two.png") },
       ]);
     });
-    await expect(page.getByText(/3 files added · 1 can't be converted/)).toBeVisible();
+    await expect(page.getByText(/3 files added · 1 can't be opened/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "one.png" })).toBeVisible();
     await shot(page, "14-multi-drop");
     await page.getByRole("listbox", { name: "Imported files" }).getByRole("button", { name: "two.png" }).click();

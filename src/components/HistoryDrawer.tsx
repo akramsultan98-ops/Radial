@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FORMAT_LABEL, timeAgo } from "../lib/format";
+import { FORMAT_LABEL, OPERATION_LABEL, timeAgo } from "../lib/format";
 import type { HistoryEntry } from "../lib/types";
 import { IconAlert, IconCheck, IconClose, IconExternal, IconFolder, IconRetry, IconTrash } from "./Icons";
 import { Overlay } from "./Overlay";
@@ -18,7 +18,7 @@ export function HistoryDrawer({ entries, keepHistory, onClose, onOpen, onReveal,
   const [confirming, setConfirming] = useState(false);
   return (
     <Overlay
-      title="Recent conversions"
+      title="Recent activity"
       variant="drawer"
       onClose={onClose}
       footer={
@@ -48,11 +48,11 @@ export function HistoryDrawer({ entries, keepHistory, onClose, onOpen, onReveal,
         ))
       }
     >
-      {!keepHistory && <p className="note">History is turned off in Settings. New conversions aren't recorded.</p>}
+      {!keepHistory && <p className="note">History is turned off in Settings. New tasks aren't recorded.</p>}
       {entries.length === 0 ? (
         <div className="history-empty">
-          <p>No conversions yet.</p>
-          <p className="muted">Finished, failed and cancelled conversions appear here. Only names and locations are stored.</p>
+          <p>Nothing here yet.</p>
+          <p className="muted">Finished, failed and cancelled tasks appear here. Only names and locations are stored — never annotation text, redaction areas or metadata values.</p>
         </div>
       ) : (
         <ul className="history">
@@ -68,7 +68,10 @@ export function HistoryDrawer({ entries, keepHistory, onClose, onOpen, onReveal,
                   {e.sourceName}
                 </p>
                 <p className="history__meta">
-                  {FORMAT_LABEL[e.sourceFormat]} → {FORMAT_LABEL[e.targetFormat]} · {timeAgo(e.timestamp)}
+                  {e.operation === "convert"
+                    ? `${FORMAT_LABEL[e.sourceFormat]} → ${FORMAT_LABEL[e.targetFormat]}`
+                    : `${OPERATION_LABEL[e.operation]} · ${FORMAT_LABEL[e.targetFormat]}`}{" "}
+                  · {timeAgo(e.timestamp)}
                   <span className="sr-only">
                     {" "}
                     · {e.status === "succeeded" ? "Succeeded" : e.status === "failed" ? "Failed" : "Cancelled"}

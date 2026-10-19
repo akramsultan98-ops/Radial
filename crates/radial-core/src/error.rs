@@ -32,6 +32,8 @@ pub enum ErrorKind {
     /// The path was not provided by the user through a picker, drop or launch.
     PathNotAllowed,
     Cancelled,
+    /// Compression could not make the file smaller; nothing was written.
+    NoReduction,
     /// An optional conversion engine is not installed.
     EngineMissing,
     /// The engine produced output that failed verification, or crashed.

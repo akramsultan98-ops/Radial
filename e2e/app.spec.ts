@@ -9,15 +9,15 @@ test.describe("history, settings and layout", () => {
     await page.keyboard.press("Control+Enter");
     await expect(page.getByRole("heading", { name: "Converted to JPEG" })).toBeVisible();
 
-    await page.getByRole("button", { name: /Recent conversions/ }).click();
-    const dialog = page.getByRole("dialog", { name: "Recent conversions" });
+    await page.getByRole("button", { name: /Recent activity/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Recent activity" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/PNG → JPEG/)).toBeVisible();
     await expect(dialog.getByRole("button", { name: /^Open / })).toBeVisible();
     await shot(page, "17-history");
     await dialog.getByRole("button", { name: "Clear history" }).click();
     await dialog.getByRole("button", { name: "Clear history" }).click();
-    await expect(dialog.getByText("No conversions yet.")).toBeVisible();
+    await expect(dialog.getByText("Nothing here yet.")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
   });

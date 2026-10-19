@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { FORMAT_LABEL, STAGES, STAGE_LABEL, formatBytes, formatDelta, recoveryFor, shortenPath } from "../lib/format";
-import type { ConvertOutcome, FileInfo, JobStage, RadialError } from "../lib/types";
+import type { JobStage, OperationOutcome, RadialError } from "../lib/types";
 import { IconAlert, IconCheck, IconExternal, IconFolder, IconOpen, IconRetry } from "./Icons";
 
 export function ProgressPanel({ stage, onCancel, cancelling }: { stage: JobStage; onCancel: () => void; cancelling: boolean }) {
@@ -36,15 +36,40 @@ export function ProgressPanel({ stage, onCancel, cancelling }: { stage: JobStage
 }
 
 interface ResultProps {
-  file: FileInfo;
-  outcome: ConvertOutcome;
+  outcome: OperationOutcome;
   onOpen: () => void;
   onReveal: () => void;
   onAnother: () => void;
   onNewFile: () => void;
 }
 
-export function ResultPanel({ file, outcome, onOpen, onReveal, onAnother, onNewFile }: ResultProps) {
+export function resultTitle(o: OperationOutcome): string {
+  switch (o.operation) {
+    case "convert":
+      return `Converted to ${FORMAT_LABEL[o.format]}`;
+    case "compress":
+      return `Compressed — ${savedPercent(o)}% smaller`;
+    case "edit":
+      return "Edits saved";
+    case "crop":
+      return "Cropped copy saved";
+    case "annotate":
+      return "Annotated copy saved";
+    case "redact":
+      return "Redacted copy saved";
+    case "background":
+      return "Background applied";
+    case "metadata":
+      return "Metadata saved";
+  }
+}
+
+export function savedPercent(o: OperationOutcome): number {
+  if (o.sourceSizeBytes <= 0) return 0;
+  return Math.max(0, Math.round((1 - o.sizeBytes / o.sourceSizeBytes) * 100));
+}
+
+export function ResultPanel({ outcome, onOpen, onReveal, onAnother, onNewFile }: ResultProps) {
   const name = outcome.outputPath.split(/[\\/]/).pop() ?? outcome.outputPath;
   const dir = outcome.outputPath.slice(0, outcome.outputPath.length - name.length - 1);
   return (
@@ -53,7 +78,7 @@ export function ResultPanel({ file, outcome, onOpen, onReveal, onAnother, onNewF
         <IconCheck />
       </div>
       <h2 id="done-title" className="status__title" tabIndex={-1}>
-        Converted to {FORMAT_LABEL[outcome.format]}
+        {resultTitle(outcome)}
       </h2>
       <p className="status__file truncate selectable" title={outcome.outputPath}>
         {name}
@@ -65,16 +90,31 @@ export function ResultPanel({ file, outcome, onOpen, onReveal, onAnother, onNewF
         <div>
           <dt>Size</dt>
           <dd>
-            {formatBytes(outcome.sizeBytes)} <span className="muted">{formatDelta(file.size, outcome.sizeBytes)}</span>
+            {formatBytes(outcome.sizeBytes)}{" "}
+            <span className="muted">{formatDelta(outcome.sourceSizeBytes, outcome.sizeBytes)}</span>
           </dd>
         </div>
         <div>
-          <dt>Dimensions</dt>
+          <dt>{outcome.operation === "compress" ? "Original" : "Dimensions"}</dt>
           <dd>
-            {outcome.width} × {outcome.height}
+            {outcome.operation === "compress"
+              ? formatBytes(outcome.sourceSizeBytes)
+              : outcome.width && outcome.height
+                ? `${outcome.width} × ${outcome.height}`
+                : "—"}
           </dd>
         </div>
       </dl>
+      {outcome.operation === "compress" && (
+        <div className="savings" aria-hidden="true">
+          <span style={{ width: `${Math.max(2, 100 - savedPercent(outcome))}%` }} />
+        </div>
+      )}
+      {outcome.notes.map((n) => (
+        <p className="field__hint" key={n}>
+          {n}
+        </p>
+      ))}
       <div className="button-row">
         <button type="button" className="btn btn--primary" onClick={onOpen}>
           <IconExternal />
@@ -88,7 +128,7 @@ export function ResultPanel({ file, outcome, onOpen, onReveal, onAnother, onNewF
       <div className="button-row">
         <button type="button" className="btn btn--ghost" onClick={onAnother}>
           <IconRetry />
-          Another format
+          Another action
         </button>
         <button type="button" className="btn btn--ghost" onClick={onNewFile}>
           <IconOpen />
@@ -104,11 +144,12 @@ const ERROR_TITLE: Partial<Record<RadialError["kind"], string>> = {
   destination_not_writable: "Can't save there",
   permission_denied: "Permission denied",
   insufficient_storage: "Not enough disk space",
-  cancelled: "Conversion cancelled",
+  cancelled: "Cancelled",
+  no_reduction: "Couldn't make it smaller",
   corrupt_file: "The file is damaged",
   too_large: "The image is too large",
   not_found: "The file was moved or deleted",
-  engine_failed: "The conversion failed",
+  engine_failed: "Processing failed",
   invalid_options: "Check the options",
   path_not_allowed: "Open the file again",
 };

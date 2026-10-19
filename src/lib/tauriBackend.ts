@@ -24,10 +24,11 @@ export function createTauriBackend(): Backend {
     pickFiles: () => invoke("pick_files"),
     pickDirectory: () => invoke("pick_directory"),
     sourceFormats: () => invoke("source_formats"),
-    capabilities: (format) => invoke("capabilities_for", { format }),
-    suggestOutput: (source, target, destDir, stem) =>
-      invoke("suggest_output", { source, target, destDir: destDir ?? null, stem: stem ?? null }),
-    convert: (jobId, request) => invoke("convert", { jobId, request }),
+    operations: (path) => invoke("operations_for", { path }),
+    readMetadata: (path) => invoke("read_metadata", { path }),
+    suggestOutput: (source, operation, target, destDir, stem) =>
+      invoke("suggest_output", { source, operation, target, destDir: destDir ?? null, stem: stem ?? null }),
+    runOperation: (jobId, request) => invoke("run_operation", { jobId, request }),
     cancel: (jobId) => invoke("cancel_job", { jobId }),
     preview: async (path, edits, maxDim) => {
       const bytes = await invoke<ArrayBuffer>("preview", { path, edits, maxDim });

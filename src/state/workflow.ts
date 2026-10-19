@@ -1,21 +1,25 @@
-// The conversion workflow as a pure reducer:
-//   empty → (file) → choose → (target) → configure → converting → done | failed
+// The workflow as a pure reducer:
+//   empty → (file) → choose → (operation [+ format]) → configure → running → done | failed
 // A rejected file (unreadable/unsupported) parks in `rejected`.
 
 import type {
-  Capability,
   ConvertOptions,
-  ConvertOutcome,
+  CropRect,
   Edits,
   FileInfo,
   Format,
   ImportResult,
   JobStage,
+  MetadataEdit,
+  Operation,
+  OperationId,
+  OperationOutcome,
   OutputSuggestion,
   RadialError,
   Settings,
+  Shape,
 } from "../lib/types";
-import { NO_EDITS } from "../lib/types";
+import { EMPTY_METADATA_EDIT, NO_EDITS } from "../lib/types";
 
 export type Phase = "empty" | "rejected" | "choose" | "configure" | "converting" | "done" | "failed";
 
@@ -31,12 +35,17 @@ export interface State {
   /** Everything imported in the last drop/pick; one is active at a time. */
   tray: ImportResult[];
   active: number;
-  capabilities: Capability[] | null;
+  operations: Operation[] | null;
+  operation: OperationId | null;
+  /** Convert only. */
   target: Format | null;
   options: ConvertOptions;
+  metadata: MetadataEdit;
+  /** Compress: longest side in pixels. */
+  maxDimension: number | null;
   output: Output | null;
   job: { id: string; stage: JobStage } | null;
-  outcome: ConvertOutcome | null;
+  outcome: OperationOutcome | null;
   error: RadialError | null;
   view: StageView;
   /** A one-off message about the last import (e.g. skipped files). */
@@ -46,21 +55,34 @@ export interface State {
 export type Action =
   | { type: "imported"; items: ImportResult[] }
   | { type: "select_item"; index: number }
-  | { type: "capabilities_loaded"; capabilities: Capability[] }
-  | { type: "capabilities_failed"; error: RadialError }
+  | { type: "operations_loaded"; operations: Operation[] }
+  | { type: "operations_failed"; error: RadialError }
+  | { type: "operation_chosen"; operation: OperationId; settings: Settings }
+  | { type: "operation_cleared" }
   | { type: "target_chosen"; target: Format; settings: Settings }
   | { type: "target_cleared" }
   | { type: "options_changed"; patch: Partial<ConvertOptions> }
   | { type: "edits_changed"; patch: Partial<Edits> }
   | { type: "edits_reset" }
+  | { type: "shapes_changed"; shapes: Shape[] }
+  | { type: "regions_changed"; regions: CropRect[] }
+  | { type: "metadata_changed"; patch: Partial<MetadataEdit> }
+  | { type: "max_dimension_changed"; value: number | null }
   | { type: "output_suggested"; suggestion: OutputSuggestion }
   | { type: "output_changed"; patch: Partial<Output> }
   | { type: "view_changed"; view: StageView }
   | { type: "convert_started"; jobId: string }
   | { type: "job_stage"; jobId: string; stage: JobStage }
-  | { type: "convert_succeeded"; jobId: string; outcome: ConvertOutcome }
+  | { type: "convert_succeeded"; jobId: string; outcome: OperationOutcome }
   | { type: "convert_failed"; jobId: string; error: RadialError }
-  | { type: "retry_loaded"; item: ImportResult; target: Format; output: Output; options: ConvertOptions }
+  | {
+      type: "retry_loaded";
+      item: ImportResult;
+      operation: OperationId;
+      target: Format;
+      output: Output;
+      options: ConvertOptions;
+    }
   | { type: "convert_another" }
   | { type: "dismiss_error" }
   | { type: "dismiss_notice" }
@@ -72,15 +94,23 @@ export const defaultOptions = (): ConvertOptions => ({
   background: null,
   resize: null,
   edits: { ...NO_EDITS },
+  annotations: [],
+  redactions: [],
+  padding: 0,
+  flatten: false,
+  optimize: false,
 });
 
 export const initialState: State = {
   phase: "empty",
   tray: [],
   active: 0,
-  capabilities: null,
+  operations: null,
+  operation: null,
   target: null,
   options: defaultOptions(),
+  metadata: { ...EMPTY_METADATA_EDIT },
+  maxDimension: null,
   output: null,
   job: null,
   outcome: null,
@@ -94,8 +124,26 @@ export function activeFile(s: State): FileInfo | null {
   return item && item.type === "file" ? item : null;
 }
 
-export function activeCapability(s: State): Capability | null {
-  return s.capabilities?.find((c) => c.to === s.target) ?? null;
+export function activeOperation(s: State): Operation | null {
+  return s.operations?.find((o) => o.id === s.operation) ?? null;
+}
+
+/** The conversion capability for Convert with a chosen target. */
+export function activeCapability(s: State) {
+  return activeOperation(s)?.targets.find((c) => c.to === s.target) ?? null;
+}
+
+/** Format of the result, once it is known. */
+export function outputFormat(s: State): Format | null {
+  if (s.operation === "convert") return s.target;
+  return activeOperation(s)?.outputFormat ?? null;
+}
+
+/** Whether everything needed to run is in place. */
+export function readyToRun(s: State): boolean {
+  if (s.phase !== "configure" && s.phase !== "failed") return false;
+  if (!s.operation || !s.output) return false;
+  return s.operation !== "convert" || s.target !== null;
 }
 
 export function isUsable(item: ImportResult | undefined): boolean {
@@ -113,18 +161,31 @@ function enterItem(s: State, tray: ImportResult[], index: number): State {
   };
 }
 
-function optionsFor(target: Format, settings: Settings, prev: ConvertOptions): ConvertOptions {
+/** Options when an operation is picked. Edits, shapes and redactions belong
+ *  to the file and survive switching operations. */
+function optionsFor(op: OperationId, settings: Settings, prev: ConvertOptions, format: Format | null): ConvertOptions {
+  const quality =
+    op === "compress"
+      ? null // the operation's own default (75) applies
+      : format === "jpeg"
+        ? settings.jpegQuality
+        : format === "webp"
+          ? settings.webpQuality
+          : null;
   return {
-    quality: target === "jpeg" ? settings.jpegQuality : target === "webp" ? settings.webpQuality : null,
+    ...prev,
+    quality,
     lossless: false,
     background: settings.background,
-    resize: prev.resize,
-    // Edits belong to the file, not the target, so they survive a format change.
-    edits: prev.edits,
+    padding: op === "background" ? prev.padding : 0,
+    flatten: op === "background",
+    optimize: op === "compress",
   };
 }
 
 const busy = (s: State) => s.phase === "converting";
+const canPick = (s: State) =>
+  !busy(s) && (s.phase === "choose" || s.phase === "configure" || s.phase === "done" || s.phase === "failed");
 
 export function reducer(s: State, a: Action): State {
   switch (a.type) {
@@ -134,44 +195,81 @@ export function reducer(s: State, a: Action): State {
       const skipped = a.items.length - a.items.filter(isUsable).length;
       const notice =
         a.items.length > 1
-          ? `${a.items.length} files added${skipped ? ` · ${skipped} can't be converted` : ""}. Convert them one at a time from the file list.`
+          ? `${a.items.length} files added${skipped ? ` · ${skipped} can't be opened` : ""}. Work on them one at a time from the file list.`
           : null;
       return enterItem({ ...s, notice }, a.items, first === -1 ? 0 : first);
     }
     case "select_item":
       if (busy(s) || a.index < 0 || a.index >= s.tray.length) return s;
       return enterItem(s, s.tray, a.index);
-    case "capabilities_loaded":
-      return { ...s, capabilities: a.capabilities };
-    case "capabilities_failed":
-      return { ...s, capabilities: [], error: a.error };
+    case "operations_loaded": {
+      // A retried operation whose editor needs the preview opens it now.
+      const op = a.operations.find((o) => o.id === s.operation);
+      const view = s.phase === "configure" && op?.preview && s.view === "radial" ? "edit" : s.view;
+      return { ...s, operations: a.operations, view };
+    }
+    case "operations_failed":
+      return { ...s, operations: [], error: a.error };
+    case "operation_chosen": {
+      if (!canPick(s)) return s;
+      const op = s.operations?.find((o) => o.id === a.operation);
+      if (!op || !op.available) return s;
+      if (s.operation === a.operation && s.phase === "configure") return s;
+      const format = activeFile(s)?.format ?? null;
+      return {
+        ...s,
+        phase: "configure",
+        operation: a.operation,
+        target: null,
+        options: optionsFor(a.operation, a.settings, s.options, a.operation === "convert" ? null : format),
+        maxDimension: null,
+        output: null,
+        outcome: null,
+        error: null,
+        view: op.preview ? "edit" : "radial",
+      };
+    }
+    case "operation_cleared":
+      if (busy(s) || (s.phase !== "configure" && s.phase !== "failed")) return s;
+      return { ...s, phase: "choose", operation: null, target: null, output: null, error: null, view: "radial" };
     case "target_chosen": {
-      if (busy(s) || (s.phase !== "choose" && s.phase !== "configure" && s.phase !== "done" && s.phase !== "failed")) {
-        return s;
-      }
-      const cap = s.capabilities?.find((c) => c.to === a.target);
+      if (!canPick(s) || s.operation !== "convert") return s;
+      const cap = activeOperation(s)?.targets.find((c) => c.to === a.target);
       if (!cap || !cap.available) return s;
-      const sameTarget = s.target === a.target && s.phase === "configure";
+      if (s.target === a.target && s.phase === "configure") return s;
       return {
         ...s,
         phase: "configure",
         target: a.target,
-        options: sameTarget ? s.options : optionsFor(a.target, a.settings, s.options),
-        output: sameTarget ? s.output : null,
+        options: {
+          ...s.options,
+          quality: a.target === "jpeg" ? a.settings.jpegQuality : a.target === "webp" ? a.settings.webpQuality : null,
+          lossless: false,
+          background: a.settings.background,
+        },
+        output: null,
         outcome: null,
         error: null,
         view: s.view === "result" ? "radial" : s.view,
       };
     }
     case "target_cleared":
-      if (busy(s) || s.phase !== "configure") return s;
-      return { ...s, phase: "choose", target: null, output: null, view: "radial" };
+      if (busy(s) || s.operation !== "convert" || s.target === null) return s;
+      return { ...s, phase: "configure", target: null, output: null, view: "radial" };
     case "options_changed":
       return { ...s, options: { ...s.options, ...a.patch } };
     case "edits_changed":
       return { ...s, options: { ...s.options, edits: { ...s.options.edits, ...a.patch } } };
     case "edits_reset":
       return { ...s, options: { ...s.options, edits: { ...NO_EDITS } } };
+    case "shapes_changed":
+      return { ...s, options: { ...s.options, annotations: a.shapes } };
+    case "regions_changed":
+      return { ...s, options: { ...s.options, redactions: a.regions } };
+    case "metadata_changed":
+      return { ...s, metadata: { ...s.metadata, ...a.patch } };
+    case "max_dimension_changed":
+      return { ...s, maxDimension: a.value };
     case "output_suggested":
       return { ...s, output: { destDir: a.suggestion.destDir, stem: a.suggestion.stem } };
     case "output_changed":
@@ -179,9 +277,8 @@ export function reducer(s: State, a: Action): State {
     case "view_changed":
       return { ...s, view: a.view };
     case "convert_started":
-      if (s.phase !== "configure" && s.phase !== "failed") return s;
-      if (!s.target || !s.output) return s;
-      return { ...s, phase: "converting", job: { id: a.jobId, stage: "queued" }, error: null, view: "radial" };
+      if (!readyToRun(s)) return s;
+      return { ...s, phase: "converting", job: { id: a.jobId, stage: "queued" }, error: null };
     case "job_stage":
       if (!s.job || s.job.id !== a.jobId) return s;
       return { ...s, job: { ...s.job, stage: a.stage } };
@@ -195,11 +292,29 @@ export function reducer(s: State, a: Action): State {
       if (busy(s)) return s;
       const next = enterItem({ ...s, notice: null }, [a.item], 0);
       if (next.phase !== "choose") return next;
-      return { ...next, target: a.target, options: a.options, output: a.output, phase: "configure" };
+      // Operations are loaded asynchronously; keep the plan and let the
+      // operation become active once they arrive (see `operations_loaded`).
+      return {
+        ...next,
+        operation: a.operation,
+        target: a.operation === "convert" ? a.target : null,
+        options: { ...defaultOptions(), ...a.options, annotations: [], redactions: [] },
+        output: a.output,
+        phase: "configure",
+      };
     }
     case "convert_another":
       if (s.phase !== "done" && s.phase !== "failed") return s;
-      return { ...s, phase: "choose", target: null, output: null, outcome: null, error: null, view: "radial" };
+      return {
+        ...s,
+        phase: "choose",
+        operation: null,
+        target: null,
+        output: null,
+        outcome: null,
+        error: null,
+        view: "radial",
+      };
     case "dismiss_error":
       if (s.phase === "failed") return { ...s, phase: "configure", error: null };
       return { ...s, error: null };

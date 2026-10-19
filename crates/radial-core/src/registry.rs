@@ -53,6 +53,20 @@ pub enum OptionSpec {
     Rotate,
     Crop,
     BrightnessContrast,
+    /// Fit within a maximum width/height (Compress).
+    MaxDimension,
+    /// Border around the image (Background).
+    Padding,
+    /// Lossless optimisation (Compress, PNG).
+    Optimize,
+    /// Drawn shapes, arrows and text (Annotate).
+    Shapes,
+    /// Areas to remove (Redact).
+    Regions,
+    /// Title/author/… (Metadata).
+    MetadataFields,
+    /// Remove all metadata (Metadata).
+    StripMetadata,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

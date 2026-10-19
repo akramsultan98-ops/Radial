@@ -9,11 +9,12 @@
 //! failed job never leaves a file that looks like a finished conversion.
 
 use crate::detect;
+use crate::draw;
 use crate::error::{ErrorKind, RadialError, Result};
 use crate::format::{Format, Recognized};
 use crate::limits;
-use crate::naming;
 use crate::options::{self, ConvertOptions, Edits, Resolved, Rgb};
+use crate::output;
 use crate::paths;
 use crate::registry::Registry;
 use image::codecs::jpeg::JpegEncoder;
@@ -236,13 +237,51 @@ fn prepare(img: DynamicImage, target: Format, bg: Rgb) -> DynamicImage {
     }
 }
 
-/// Run the full editing pipeline and return pixels ready for `target`.
+/// Add a border of `p` pixels, filled with the background (or transparent
+/// when the image keeps its alpha channel).
+fn pad(img: DynamicImage, p: u32, bg: Rgb) -> DynamicImage {
+    if p == 0 {
+        return img;
+    }
+    let (w, h) = (img.width() + 2 * p, img.height() + 2 * p);
+    if img.color().has_alpha() {
+        let mut out = image::RgbaImage::from_pixel(w, h, image::Rgba([0, 0, 0, 0]));
+        image::imageops::overlay(&mut out, &img.to_rgba8(), i64::from(p), i64::from(p));
+        DynamicImage::ImageRgba8(out)
+    } else {
+        let [r, g, b] = bg.0;
+        let mut out = image::RgbImage::from_pixel(w, h, image::Rgb([r, g, b]));
+        image::imageops::overlay(&mut out, &img.to_rgb8(), i64::from(p), i64::from(p));
+        DynamicImage::ImageRgb8(out)
+    }
+}
+
+/// Run the full editing pipeline and return pixels ready for `target`:
+/// rotate → crop → tone → resize → annotations → redactions → background → padding.
 pub fn process(img: DynamicImage, target: Format, opts: &Resolved) -> DynamicImage {
     let mut img = apply_edits(img, &opts.edits);
     if let Some(r) = &opts.resize {
         img = resize(img, r);
     }
+    img = draw::render(img, &opts.annotations, &opts.redactions);
+    if (opts.flatten || !target.writes_alpha()) && img.color().has_alpha() {
+        img = flatten(&img, opts.background);
+    }
+    img = pad(img, opts.padding, opts.background);
     prepare(img, target, opts.background)
+}
+
+/// Lossless PNG optimisation (oxipng). Keeps colour-management chunks, drops
+/// text and timestamps.
+fn optimize_png(data: &[u8]) -> Result<Vec<u8>> {
+    let mut o = oxipng::Options::from_preset(2);
+    o.strip = oxipng::StripChunks::Safe;
+    oxipng::optimize_from_memory(data, &o).map_err(|e| {
+        RadialError::new(
+            ErrorKind::EngineFailed,
+            format!("PNG optimisation failed: {e}."),
+        )
+    })
 }
 
 fn encode<W: Write + std::io::Seek>(
@@ -255,12 +294,23 @@ fn encode<W: Write + std::io::Seek>(
     let enc_err = |e| RadialError::from_image(e, "encoding the output");
     match target {
         Format::Png => {
-            let mut enc =
-                PngEncoder::new_with_quality(w, CompressionType::Default, PngFilter::Adaptive);
-            if let Some(p) = icc {
-                let _ = enc.set_icc_profile(p.to_vec());
+            let mut buf = Vec::new();
+            {
+                let mut enc = PngEncoder::new_with_quality(
+                    &mut buf,
+                    CompressionType::Default,
+                    PngFilter::Adaptive,
+                );
+                if let Some(p) = icc {
+                    let _ = enc.set_icc_profile(p.to_vec());
+                }
+                img.write_with_encoder(enc).map_err(enc_err)?;
             }
-            img.write_with_encoder(enc).map_err(enc_err)
+            if opts.optimize {
+                buf = optimize_png(&buf)?;
+            }
+            w.write_all(&buf)
+                .map_err(|e| RadialError::from_io(&e, "writing the output"))
         }
         Format::Jpeg => {
             let mut enc = JpegEncoder::new_with_quality(w, opts.quality);
@@ -374,6 +424,11 @@ pub fn verify(path: &Path, target: Format, width: u32, height: u32) -> Result<()
     Ok(())
 }
 
+/// Fail with `Cancelled` if cancellation was requested.
+pub fn check_cancel(cancel: &AtomicBool) -> Result<()> {
+    check(cancel)
+}
+
 fn check(cancel: &AtomicBool) -> Result<()> {
     if cancel.load(Ordering::Relaxed) {
         Err(RadialError::cancelled())
@@ -410,25 +465,75 @@ pub fn plan(registry: &Registry, req: &ConvertRequest) -> Result<(Format, Resolv
         ));
     }
     let resolved = req.options.validate(req.target)?;
-    let stem = naming::validate_stem(&req.stem)?;
-    let dir = paths::validate_destination_dir(&req.dest_dir)?;
-    let out = dir.join(naming::file_name(&stem, req.target));
-    if paths::same_file_path(&out, &source) {
-        return Err(RadialError::new(
-            ErrorKind::DestinationExists,
-            "The output would replace the original file.",
-        ));
-    }
-    if out.exists() {
-        return Err(RadialError::new(
-            ErrorKind::DestinationExists,
-            format!(
-                "“{}” already exists. Choose another name.",
-                out.file_name().unwrap_or_default().to_string_lossy()
-            ),
-        ));
-    }
+    let out = output::plan(&source, &req.dest_dir, &req.stem, req.target.extension())?;
     Ok((from, resolved, out))
+}
+
+/// Result of [`image_job`].
+pub struct ImageResult {
+    pub width: u32,
+    pub height: u32,
+    pub size_bytes: u64,
+}
+
+/// The shared image pipeline: decode → process → encode into a staged file →
+/// verify → persist. When `must_shrink_below` is set, the result is discarded
+/// (nothing written) unless it is smaller than that many bytes.
+#[allow(clippy::too_many_arguments)]
+pub fn image_job(
+    source: &Path,
+    from: Format,
+    target: Format,
+    resolved: &Resolved,
+    out: &Path,
+    must_shrink_below: Option<u64>,
+    cancel: &AtomicBool,
+    mut on_stage: impl FnMut(Stage),
+) -> Result<ImageResult> {
+    check(cancel)?;
+    on_stage(Stage::Decoding);
+    let Loaded { image, icc } = load(source, from)?;
+
+    check(cancel)?;
+    on_stage(Stage::Processing);
+    let image = process(image, target, resolved);
+    let (width, height) = (image.width(), image.height());
+
+    check(cancel)?;
+    on_stage(Stage::Encoding);
+    let tmp = output::stage(out)?;
+    {
+        let mut w = BufWriter::new(tmp.as_file());
+        encode(&image, target, resolved, icc.as_deref(), &mut w)?;
+        w.flush()
+            .map_err(|e| RadialError::from_io(&e, "writing the output"))?;
+    }
+    output::sync(&tmp)?;
+    drop(image);
+
+    check(cancel)?;
+    on_stage(Stage::Verifying);
+    verify(tmp.path(), target, width, height)?;
+    if let Some(limit) = must_shrink_below {
+        let size = output::staged_size(&tmp);
+        if size >= limit {
+            return Err(RadialError::new(
+                ErrorKind::NoReduction,
+                format!(
+                    "These settings would not make the file smaller ({} → {} bytes), so nothing was saved. Try a lower quality or a smaller size.",
+                    limit, size
+                ),
+            ));
+        }
+    }
+
+    check(cancel)?;
+    let size_bytes = output::persist(tmp, out)?;
+    Ok(ImageResult {
+        width,
+        height,
+        size_bytes,
+    })
 }
 
 /// Perform a conversion. `on_stage` is called as each stage begins.
@@ -436,69 +541,26 @@ pub fn convert(
     registry: &Registry,
     req: &ConvertRequest,
     cancel: &AtomicBool,
-    mut on_stage: impl FnMut(Stage),
+    on_stage: impl FnMut(Stage),
 ) -> Result<ConvertOutcome> {
     let (from, resolved, out) = plan(registry, req)?;
-
-    check(cancel)?;
-    on_stage(Stage::Decoding);
-    let Loaded { image, icc } = load(&req.source, from)?;
-
-    check(cancel)?;
-    on_stage(Stage::Processing);
-    let image = process(image, req.target, &resolved);
-    let (width, height) = (image.width(), image.height());
-
-    check(cancel)?;
-    on_stage(Stage::Encoding);
-    let dir = out.parent().unwrap_or(&req.dest_dir);
-    // Hidden, clearly-temporary name; removed automatically on drop (error/cancel).
-    let mut builder = tempfile::Builder::new();
-    builder.prefix(".radial-").suffix(".part");
-    // Temp files default to owner-only (0600). The output is an ordinary user
-    // file, so request 0666 and let the process umask apply, as `File::create` would.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(std::fs::Permissions::from_mode(0o666));
-    }
-    let tmp = builder
-        .tempfile_in(dir)
-        .map_err(|e| RadialError::from_io(&e, "creating the output file"))?;
-    {
-        let mut w = BufWriter::new(tmp.as_file());
-        encode(&image, req.target, &resolved, icc.as_deref(), &mut w)?;
-        w.flush()
-            .map_err(|e| RadialError::from_io(&e, "writing the output"))?;
-    }
-    tmp.as_file()
-        .sync_all()
-        .map_err(|e| RadialError::from_io(&e, "writing the output"))?;
-    drop(image);
-
-    check(cancel)?;
-    on_stage(Stage::Verifying);
-    verify(tmp.path(), req.target, width, height)?;
-
-    check(cancel)?;
-    let file = tmp.persist_noclobber(&out).map_err(|e| {
-        if e.error.kind() == std::io::ErrorKind::AlreadyExists {
-            RadialError::new(
-                ErrorKind::DestinationExists,
-                "A file with that name appeared during conversion. Nothing was overwritten.",
-            )
-        } else {
-            RadialError::from_io(&e.error, "saving the output")
-        }
-    })?;
-    let size_bytes = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let r = image_job(
+        &req.source,
+        from,
+        req.target,
+        &resolved,
+        &out,
+        None,
+        cancel,
+        on_stage,
+    )?;
     Ok(ConvertOutcome {
         output_path: out,
         source_format: from,
         format: req.target,
-        width,
-        height,
-        size_bytes,
+        width: r.width,
+        height: r.height,
+        size_bytes: r.size_bytes,
     })
 }
 

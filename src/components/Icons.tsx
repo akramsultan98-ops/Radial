@@ -2,7 +2,7 @@
 // the controls that use them carry their own accessible labels.
 
 import type { ReactNode, SVGProps } from "react";
-import type { Format } from "../lib/types";
+import type { Format, OperationId } from "../lib/types";
 
 type P = SVGProps<SVGSVGElement>;
 
@@ -221,6 +221,68 @@ export function FormatIcon({ format, ...p }: P & { format: Format }) {
         <Svg {...p}>
           <rect x="4" y="3.5" width="16" height="17" rx="2" />
           <path d="M8 3.5v17M16 3.5v17M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4" />
+        </Svg>
+      );
+  }
+}
+
+/** Glyph per operation, used in the ring and the operation list. */
+export function OperationIcon({ op, ...p }: P & { op: OperationId }) {
+  switch (op) {
+    case "convert":
+      return (
+        <Svg {...p}>
+          <path d="M4 8h13l-3-3M20 16H7l3 3" />
+        </Svg>
+      );
+    case "compress":
+      return (
+        <Svg {...p}>
+          <path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" />
+        </Svg>
+      );
+    case "edit":
+      return (
+        <Svg {...p}>
+          <path d="M4 7h8M16 7h4M4 17h4M12 17h8" />
+          <circle cx="14" cy="7" r="2" />
+          <circle cx="10" cy="17" r="2" />
+        </Svg>
+      );
+    case "crop":
+      return (
+        <Svg {...p}>
+          <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+          <path d="M2 6h14a2 2 0 0 1 2 2v14" />
+        </Svg>
+      );
+    case "annotate":
+      return (
+        <Svg {...p}>
+          <path d="M4 20l4-1L19 8a2.1 2.1 0 0 0-3-3L5 16z" />
+          <path d="M14 7l3 3M4 20h16" strokeOpacity={0.5} />
+        </Svg>
+      );
+    case "redact":
+      return (
+        <Svg {...p}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="M6 10h8M6 14h12" />
+          <rect x="9" y="8.6" width="9" height="2.8" fill="currentColor" stroke="none" />
+        </Svg>
+      );
+    case "background":
+      return (
+        <Svg {...p}>
+          <rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fillOpacity={0.25} />
+          <rect x="7.5" y="7.5" width="9" height="9" rx="1.5" />
+        </Svg>
+      );
+    case "metadata":
+      return (
+        <Svg {...p}>
+          <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" />
+          <circle cx="8" cy="8" r="1.5" />
         </Svg>
       );
   }

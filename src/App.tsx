@@ -1,22 +1,46 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { Notice, StatusBar, TopBar } from "./components/Chrome";
+import { AnnotationLayer, RedactLayer } from "./components/EditorLayers";
 import { EmptyState } from "./components/EmptyState";
 import { FileDetails } from "./components/FileDetails";
 import { FileOrb } from "./components/FileOrb";
-import { FormatList } from "./components/FormatList";
 import { HistoryDrawer } from "./components/HistoryDrawer";
-import { IconAlert, IconBack, IconCheck, IconCompare, IconCrop, IconOpen, IconRotateLeft, IconRotateRight } from "./components/Icons";
-import { editedSize, OptionsPanel } from "./components/OptionsPanel";
+import {
+  FormatIcon,
+  IconAlert,
+  IconBack,
+  IconCheck,
+  IconCompare,
+  IconCrop,
+  IconOpen,
+  IconRotateLeft,
+  IconRotateRight,
+  OperationIcon,
+} from "./components/Icons";
+import { DEFAULT_TOOL, type AnnotateTool } from "./components/OperationPanels";
+import { OperationList } from "./components/OperationList";
+import { blockedReason, OperationSettings, runLabel } from "./components/OperationSettings";
+import { editedSize } from "./components/OptionsPanel";
 import { OutputPanel, stemProblem } from "./components/OutputPanel";
 import { PreviewView } from "./components/PreviewView";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { ErrorPanel, ProgressPanel, ResultPanel } from "./components/StatusPanels";
 import { getBackend, toRadialError, type Backend } from "./lib/backend";
 import { FORMAT_LABEL, newJobId } from "./lib/format";
-import type { Edits, Format, HistoryEntry, ImportResult, Settings } from "./lib/types";
+import type { Edits, Format, HistoryEntry, ImportResult, OperationId, Settings } from "./lib/types";
 import { NO_EDITS } from "./lib/types";
-import { RadialMenu } from "./radial/RadialMenu";
-import { activeCapability, activeFile, initialState, isUsable, reducer, type Output } from "./state/workflow";
+import { RadialMenu, type RadialItem } from "./radial/RadialMenu";
+import {
+  activeCapability,
+  activeFile,
+  activeOperation,
+  initialState,
+  isUsable,
+  outputFormat,
+  readyToRun,
+  reducer,
+  type Output,
+} from "./state/workflow";
 
 const DEFAULT_SETTINGS: Settings = {
   defaultDestination: null,
@@ -28,6 +52,7 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 const FULL_CROP = { x: 0, y: 0, width: 1, height: 1 };
+const START_CROP = { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
 
 export function App() {
   const [backend, setBackend] = useState<Backend | null>(null);
@@ -41,14 +66,17 @@ export function App() {
   const [cancelling, setCancelling] = useState(false);
   const [cropping, setCropping] = useState(false);
   const [compare, setCompare] = useState<"output" | "source">("output");
+  const [tool, setTool] = useState<AnnotateTool>(DEFAULT_TOOL);
   const [ringSize, setRingSize] = useState(520);
   const stageRef = useRef<HTMLDivElement>(null);
 
   const file = activeFile(state);
+  const op = activeOperation(state);
   const cap = activeCapability(state);
   const item = state.tray[state.active];
   const busy = state.phase === "converting";
   const outcome = state.outcome;
+  const outFormat = outputFormat(state);
 
   // ---- Boot ----
   useEffect(() => {
@@ -103,39 +131,40 @@ export function App() {
     return () => ro.disconnect();
   }, []);
 
-  // Capabilities for the active file, from the registry.
-  const fileKey = file && isUsable(item) ? `${file.path}|${file.format}` : null;
+  // Operations for the active file, from the registry.
+  // Reload whenever the list is missing (also when the same file is re-imported).
+  const fileKey = file && isUsable(item) && state.operations === null ? file.path : null;
   useEffect(() => {
-    if (!backend || !fileKey || !file?.format) return;
+    if (!backend || !fileKey) return;
     let alive = true;
     backend
-      .capabilities(file.format)
-      .then((c) => alive && dispatch({ type: "capabilities_loaded", capabilities: c }))
-      .catch((e: unknown) => alive && dispatch({ type: "capabilities_failed", error: toRadialError(e) }));
+      .operations(fileKey)
+      .then((ops) => alive && dispatch({ type: "operations_loaded", operations: ops }))
+      .catch((e: unknown) => alive && dispatch({ type: "operations_failed", error: toRadialError(e) }));
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on fileKey
   }, [backend, fileKey]);
 
-  // Suggest a destination once a target is chosen.
+  // Suggest a destination once the operation and output format are known.
   useEffect(() => {
-    if (!backend || !file || !state.target || state.output) return;
+    if (!backend || !file || !state.operation || !outFormat || state.output) return;
     let alive = true;
     backend
-      .suggestOutput(file.path, state.target)
+      .suggestOutput(file.path, state.operation, outFormat)
       .then((s) => alive && dispatch({ type: "output_suggested", suggestion: s }))
       .catch((e: unknown) => alive && setStatus(toRadialError(e).message));
     return () => {
       alive = false;
     };
-  }, [backend, file, state.target, state.output]);
+  }, [backend, file, state.operation, outFormat, state.output]);
 
-  // Leave crop/compare modes when the active file changes.
-  const [seenPath, setSeenPath] = useState<string | null>(null);
-  if ((file?.path ?? null) !== seenPath) {
-    setSeenPath(file?.path ?? null);
-    setCropping(false);
+  // Leave crop/compare modes when the file or operation changes.
+  const modeKey = `${file?.path ?? ""}|${state.operation ?? ""}`;
+  const [seenMode, setSeenMode] = useState(modeKey);
+  if (modeKey !== seenMode) {
+    setSeenMode(modeKey);
+    setCropping(state.operation === "crop");
     setCompare("output");
   }
 
@@ -154,6 +183,18 @@ export function App() {
     }
   }, [backend, busy]);
 
+  const chooseOperation = useCallback(
+    (id: OperationId) => {
+      dispatch({ type: "operation_chosen", operation: id, settings });
+      if (id === "crop" && !state.options.edits.crop) {
+        dispatch({ type: "edits_changed", patch: { crop: START_CROP } });
+      }
+      const o = state.operations?.find((x) => x.id === id);
+      if (o) setStatus(o.available ? `${o.label}: ${o.description}` : (o.reason ?? ""));
+    },
+    [settings, state.options.edits.crop, state.operations],
+  );
+
   const chooseTarget = useCallback(
     (target: Format) => {
       dispatch({ type: "target_chosen", target, settings });
@@ -162,9 +203,9 @@ export function App() {
     [settings],
   );
 
-  const convert = useCallback(
+  const run = useCallback(
     async (override?: Partial<Output>) => {
-      if (!backend || !file || !state.target || !state.output) return;
+      if (!backend || !file || !state.operation || !state.output) return;
       const output = { ...state.output, ...override };
       const problem = stemProblem(output.stem);
       if (problem) {
@@ -175,28 +216,31 @@ export function App() {
       const jobId = newJobId();
       dispatch({ type: "convert_started", jobId });
       setCropping(false);
-      setStatus("Converting…");
+      setStatus("Working…");
       try {
-        const outcome = await backend.convert(jobId, {
+        const result = await backend.runOperation(jobId, {
           source: file.path,
-          target: state.target,
+          operation: state.operation,
+          target: state.operation === "convert" ? state.target : null,
           destDir: output.destDir,
           stem: output.stem.trim(),
           options: state.options,
+          metadata: state.metadata,
+          maxDimension: state.maxDimension,
         });
-        dispatch({ type: "convert_succeeded", jobId, outcome });
+        dispatch({ type: "convert_succeeded", jobId, outcome: result });
         setCompare("output");
-        setStatus(`Saved ${outcome.outputPath.split(/[\\/]/).pop()}`);
+        setStatus(`Saved ${result.outputPath.split(/[\\/]/).pop()}`);
       } catch (e) {
         const err = toRadialError(e);
         dispatch({ type: "convert_failed", jobId, error: err });
-        setStatus(err.kind === "cancelled" ? "Conversion cancelled" : `Conversion failed: ${err.message}`);
+        setStatus(err.kind === "cancelled" ? "Cancelled" : `Failed: ${err.message}`);
       } finally {
         setCancelling(false);
         refreshHistory();
       }
     },
-    [backend, file, state.target, state.output, state.options, refreshHistory],
+    [backend, file, state.operation, state.output, state.target, state.options, state.metadata, state.maxDimension, refreshHistory],
   );
 
   const cancel = useCallback(() => {
@@ -219,16 +263,16 @@ export function App() {
   }, [backend, state.phase]);
 
   const useFreeName = useCallback(async () => {
-    if (!backend || !file || !state.target || !state.output) return;
+    if (!backend || !file || !state.operation || !outFormat || !state.output) return;
     try {
-      const s = await backend.suggestOutput(file.path, state.target, state.output.destDir, state.output.stem.trim());
-      void convert({ stem: s.stem });
+      const s = await backend.suggestOutput(file.path, state.operation, outFormat, state.output.destDir, state.output.stem.trim());
+      void run({ stem: s.stem });
     } catch (e) {
       setStatus(toRadialError(e).message);
     }
-  }, [backend, file, state.target, state.output, convert]);
+  }, [backend, file, state.operation, outFormat, state.output, run]);
 
-  const run = (p: Promise<void> | undefined, ok: string) =>
+  const report = (p: Promise<void> | undefined, ok: string) =>
     p?.then(() => setStatus(ok)).catch((e: unknown) => setStatus(toRadialError(e).message));
 
   const retryFromHistory = async (id: string) => {
@@ -239,6 +283,7 @@ export function App() {
       dispatch({
         type: "retry_loaded",
         item: plan.file,
+        operation: plan.operation,
         target: plan.target,
         output: { destDir: plan.destDir, stem: plan.stem },
         options: plan.options,
@@ -264,7 +309,7 @@ export function App() {
   const startCrop = () => {
     setCropping(true);
     dispatch({ type: "view_changed", view: "edit" });
-    if (!state.options.edits.crop) setEdits({ crop: { x: 0.05, y: 0.05, width: 0.9, height: 0.9 } });
+    if (!state.options.edits.crop) setEdits({ crop: START_CROP });
   };
 
   const finishCrop = () => {
@@ -273,18 +318,24 @@ export function App() {
     setCropping(false);
   };
 
+  const back = () => {
+    if (state.operation === "convert" && state.target) dispatch({ type: "target_cleared" });
+    else dispatch({ type: "operation_cleared" });
+  };
+
   // ---- Keyboard ----
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (overlay) return;
       const mod = e.ctrlKey || e.metaKey;
+      const typing = (e.target as HTMLElement | null)?.closest("input, textarea");
       if (mod && e.key.toLowerCase() === "o") {
         e.preventDefault();
         void pickFiles();
       } else if (mod && e.key === "Enter") {
-        if (state.phase === "configure" || state.phase === "failed") {
+        if (readyToRun(state) && op && file && !blockedReason(op, state, file)) {
           e.preventDefault();
-          void convert();
+          void run();
         }
       } else if (mod && e.key.toLowerCase() === "h") {
         e.preventDefault();
@@ -292,10 +343,11 @@ export function App() {
       } else if (mod && e.key === ",") {
         e.preventDefault();
         setOverlay("settings");
-      } else if (e.key === "Escape") {
+      } else if (e.key === "Escape" && !typing) {
         if (busy) cancel();
-        else if (cropping) finishCrop();
-        else if (state.view === "edit") dispatch({ type: "view_changed", view: "radial" });
+        else if (cropping && state.operation !== "crop") finishCrop();
+        else if (state.view === "edit" && state.operation === "convert") dispatch({ type: "view_changed", view: "radial" });
+        else if (state.phase === "configure") back();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -304,7 +356,41 @@ export function App() {
 
   // ---- Stage ----
   const sourceLabel = file?.format ? FORMAT_LABEL[file.format] : "";
-  let stage: React.ReactNode;
+  const routeLabel =
+    state.operation === "convert" ? (state.target ? FORMAT_LABEL[state.target] : null) : (op?.label ?? null);
+  const formatRing = state.operation === "convert" && state.view !== "result";
+
+  const backToOperations = (
+    <button type="button" className="btn btn--ghost" onClick={() => dispatch({ type: "operation_cleared" })} disabled={busy}>
+      <IconBack />
+      Actions
+    </button>
+  );
+
+  const rotateButtons = (e: Edits) => (
+    <>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="Rotate left"
+        data-tip="Rotate left"
+        onClick={() => setEdits({ rotate: ((e.rotate + 270) % 360) as Edits["rotate"], crop: null })}
+      >
+        <IconRotateLeft />
+      </button>
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="Rotate right"
+        data-tip="Rotate right"
+        onClick={() => setEdits({ rotate: ((e.rotate + 90) % 360) as Edits["rotate"], crop: null })}
+      >
+        <IconRotateRight />
+      </button>
+    </>
+  );
+
+  let stage: ReactNode;
   if (state.phase === "empty") {
     stage = <EmptyState sources={sources} dragOver={dragOver} onPick={pickFiles} />;
   } else if (state.phase === "rejected" || !file) {
@@ -313,9 +399,9 @@ export function App() {
         <div className="rejected__orb" aria-hidden="true">
           <IconAlert />
         </div>
-        <h1 className="empty__title">This file can't be converted</h1>
+        <h1 className="empty__title">This file can't be opened</h1>
         <p className="empty__sub">
-          {item?.type === "error" ? item.error.message : item?.problem?.message ?? "Unsupported file."}
+          {item?.type === "error" ? item.error.message : (item?.problem?.message ?? "Unsupported file.")}
         </p>
         <button type="button" className="btn btn--primary btn--lg" onClick={pickFiles}>
           <IconOpen />
@@ -323,23 +409,23 @@ export function App() {
         </button>
       </div>
     );
-  } else if (state.view === "result" && state.outcome) {
+  } else if (state.view === "result" && outcome) {
     const showSource = compare === "source";
     stage = (
       <PreviewView
         backend={backend}
-        path={showSource ? file.path : state.outcome.outputPath}
+        path={showSource ? file.path : outcome.outputPath}
         edits={NO_EDITS}
         natural={
           showSource
             ? { width: file.width ?? 1, height: file.height ?? 1 }
-            : { width: state.outcome.width, height: state.outcome.height }
+            : { width: outcome.width ?? file.width ?? 1, height: outcome.height ?? file.height ?? 1 }
         }
-        label={showSource ? `Original · ${sourceLabel}` : `Output · ${FORMAT_LABEL[state.outcome.format]}`}
+        label={showSource ? `Original · ${sourceLabel}` : `Result · ${FORMAT_LABEL[outcome.format]}`}
         toolbarStart={
           <div className="segmented" role="radiogroup" aria-label="Compare">
             <button type="button" role="radio" aria-checked={!showSource} onClick={() => setCompare("output")}>
-              Output
+              Result
             </button>
             <button type="button" role="radio" aria-checked={showSource} onClick={() => setCompare("source")}>
               Original
@@ -349,106 +435,176 @@ export function App() {
         toolbarEnd={<IconCompare className="preview__deco" />}
       />
     );
-  } else if (state.view === "edit" && state.phase !== "converting") {
+  } else if (state.view === "edit" && op) {
     const e = state.options.edits;
-    const renderEdits = cropping ? { ...e, crop: null } : e;
-    stage = (
-      <PreviewView
-        backend={backend}
-        path={file.path}
-        edits={renderEdits}
-        natural={editedSize(file, renderEdits)}
-        label={cropping ? "Crop" : "Edited original"}
-        crop={cropping ? { value: e.crop ?? FULL_CROP, onChange: (c) => setEdits({ crop: c }) } : null}
-        toolbarStart={
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => {
-              finishCrop();
-              dispatch({ type: "view_changed", view: "radial" });
-            }}
-          >
-            <IconBack />
-            Formats
-          </button>
-        }
-        toolbarEnd={
-          <>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Rotate left"
-              data-tip="Rotate left"
-              onClick={() => setEdits({ rotate: ((e.rotate + 270) % 360) as Edits["rotate"], crop: null })}
-            >
-              <IconRotateLeft />
-            </button>
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Rotate right"
-              data-tip="Rotate right"
-              onClick={() => setEdits({ rotate: ((e.rotate + 90) % 360) as Edits["rotate"], crop: null })}
-            >
-              <IconRotateRight />
-            </button>
-            {cropping ? (
-              <>
-                <button type="button" className="btn btn--ghost" onClick={() => setEdits({ crop: null })}>
-                  Clear
-                </button>
-                <button type="button" className="btn btn--primary" onClick={finishCrop}>
-                  <IconCheck />
-                  Apply crop
-                </button>
-              </>
-            ) : (
-              <button type="button" className="icon-btn" aria-label="Crop" data-tip="Crop" data-tip-pos="left" onClick={startCrop}>
-                <IconCrop />
+    const o = state.options;
+    const natural = { width: file.width ?? 1, height: file.height ?? 1 };
+    if (op.id === "annotate") {
+      stage = (
+        <PreviewView
+          backend={backend}
+          path={file.path}
+          edits={NO_EDITS}
+          natural={natural}
+          label="Annotate"
+          toolbarStart={backToOperations}
+          overlay={(box) => (
+            <AnnotationLayer
+              box={box}
+              shapes={o.annotations}
+              tool={tool}
+              onAdd={(s) => dispatch({ type: "shapes_changed", shapes: [...o.annotations, s] })}
+            />
+          )}
+        />
+      );
+    } else if (op.id === "redact") {
+      stage = (
+        <PreviewView
+          backend={backend}
+          path={file.path}
+          edits={NO_EDITS}
+          natural={natural}
+          label="Redact"
+          toolbarStart={backToOperations}
+          overlay={(box) => (
+            <RedactLayer
+              box={box}
+              regions={o.redactions}
+              onAdd={(r) => dispatch({ type: "regions_changed", regions: [...o.redactions, r] })}
+            />
+          )}
+        />
+      );
+    } else if (op.id === "background") {
+      stage = (
+        <PreviewView
+          backend={backend}
+          path={file.path}
+          edits={NO_EDITS}
+          natural={natural}
+          label="Background"
+          toolbarStart={backToOperations}
+          frame={{ color: o.background ?? "#ffffff", padding: o.padding }}
+        />
+      );
+    } else {
+      // Edit, Crop, and Convert's optional edit preview.
+      const isCrop = op.id === "crop" || cropping;
+      const renderEdits = isCrop ? { ...e, crop: null } : op.id === "edit" ? { ...e, crop: null } : e;
+      stage = (
+        <PreviewView
+          backend={backend}
+          path={file.path}
+          edits={renderEdits}
+          natural={editedSize(file, renderEdits)}
+          label={isCrop ? "Crop" : op.id === "edit" ? "Edit" : "Edited original"}
+          crop={isCrop ? { value: e.crop ?? FULL_CROP, onChange: (c) => setEdits({ crop: c }) } : null}
+          toolbarStart={
+            op.id === "convert" ? (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  finishCrop();
+                  dispatch({ type: "view_changed", view: "radial" });
+                }}
+              >
+                <IconBack />
+                Formats
               </button>
-            )}
-          </>
-        }
-      />
-    );
+            ) : (
+              backToOperations
+            )
+          }
+          toolbarEnd={
+            <>
+              {rotateButtons(e)}
+              {op.id === "convert" &&
+                (cropping ? (
+                  <>
+                    <button type="button" className="btn btn--ghost" onClick={() => setEdits({ crop: null })}>
+                      Clear
+                    </button>
+                    <button type="button" className="btn btn--primary" onClick={finishCrop}>
+                      <IconCheck />
+                      Apply crop
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="icon-btn" aria-label="Crop" data-tip="Crop" data-tip-pos="left" onClick={startCrop}>
+                    <IconCrop />
+                  </button>
+                ))}
+            </>
+          }
+        />
+      );
+    }
   } else {
+    const convertOp = state.operations?.find((x) => x.id === "convert");
+    const items: RadialItem[] | null = formatRing
+      ? (convertOp?.targets ?? []).map((c) => ({
+          id: c.to,
+          label: c.toLabel,
+          icon: <FormatIcon format={c.to} width={24} height={24} />,
+          available: c.available,
+          action: `Convert to ${c.toLabel}`,
+          reason: c.engineStatus.state === "missing" ? c.engineStatus.hint : null,
+        }))
+      : state.operations
+        ? state.operations.map((o) => ({
+            id: o.id,
+            label: o.label,
+            icon: <OperationIcon op={o.id} width={24} height={24} />,
+            available: o.available,
+            action: `${o.label}: ${o.description}`,
+            reason: o.reason,
+          }))
+        : null;
     stage = (
       <div className="workspace">
-        {state.capabilities ? (
+        {items ? (
           <RadialMenu
-            key={file.path}
-            capabilities={state.capabilities}
-            selected={state.target}
-            onSelect={chooseTarget}
+            key={`${file.path}|${formatRing ? "formats" : "ops"}`}
+            items={items}
+            label={formatRing ? "Output format" : "Actions"}
+            selected={formatRing ? state.target : state.operation}
+            onSelect={(id) => (formatRing ? chooseTarget(id as Format) : chooseOperation(id as OperationId))}
             size={ringSize}
             busy={busy}
             sourceLabel={sourceLabel}
           >
-            <FileOrb
-              backend={backend}
-              file={file}
-              edits={state.options.edits}
-              target={state.target}
-              stage={state.job?.stage ?? null}
-            />
+            <FileOrb backend={backend} file={file} edits={state.options.edits} route={routeLabel} stage={state.job?.stage ?? null} />
           </RadialMenu>
         ) : (
           <div className="workspace__loading" style={{ width: ringSize, height: ringSize }} aria-busy="true" />
         )}
-        <p className="workspace__hint">
-          {busy
-            ? "Converting — you can cancel with Esc"
-            : state.target
-              ? "Pick another format any time · Ctrl+Enter converts"
-              : "Drag the file onto a format, click one, or use the arrow keys and Enter"}
-        </p>
+        <div className="workspace__hint">
+          {formatRing && !busy && (
+            <button type="button" className="btn btn--ghost" onClick={() => dispatch({ type: "operation_cleared" })}>
+              <IconBack />
+              All actions
+            </button>
+          )}
+          <p>
+            {busy
+              ? "Working — you can cancel with Esc"
+              : formatRing
+                ? state.target
+                  ? "Pick another format any time · Ctrl+Enter converts"
+                  : "Drag the file onto a format, or click one"
+                : state.operation
+                  ? "Pick another action any time · Ctrl+Enter runs it"
+                  : "Drag the file onto an action, click one, or use the arrow keys and Enter"}
+          </p>
+        </div>
       </div>
     );
   }
 
   // ---- Side panel ----
-  let panel: React.ReactNode = null;
+  let panel: ReactNode = null;
   if (state.phase === "empty") {
     panel = (
       <>
@@ -456,13 +612,13 @@ export function App() {
           <h2 className="section-label">How it works</h2>
           <ol className="howto">
             <li>
-              <span>1</span>Drop an image or choose one
+              <span>1</span>Drop a file or choose one
             </li>
             <li>
-              <span>2</span>Drag it onto a format in the ring
+              <span>2</span>Drag it onto an action in the ring
             </li>
             <li>
-              <span>3</span>Adjust options and convert
+              <span>3</span>Adjust settings and save a copy
             </li>
           </ol>
         </section>
@@ -476,7 +632,7 @@ export function App() {
             )}
           </div>
           {history.length === 0 ? (
-            <p className="muted">Your conversions will appear here.</p>
+            <p className="muted">Your work will appear here.</p>
           ) : (
             <ul className="recent">
               {history.slice(0, 5).map((h) => (
@@ -485,7 +641,9 @@ export function App() {
                   <span className="truncate" title={h.sourceName}>
                     {h.sourceName}
                   </span>
-                  <span className="recent__fmt">→ {FORMAT_LABEL[h.targetFormat]}</span>
+                  <span className="recent__fmt">
+                    {h.operation === "convert" ? `→ ${FORMAT_LABEL[h.targetFormat]}` : h.operation}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -506,14 +664,18 @@ export function App() {
             <h2 className="section-label">Files ({state.tray.length})</h2>
             <ul className="tray" role="listbox" aria-label="Imported files">
               {state.tray.map((t, i) => {
-                const name = t.type === "file" ? t.name : t.name;
                 const ok = isUsable(t);
                 return (
-                  <li key={`${name}-${i}`} role="option" aria-selected={i === state.active}>
-                    <button type="button" className="tray__item" disabled={busy} onClick={() => dispatch({ type: "select_item", index: i })}>
+                  <li key={`${t.name}-${i}`} role="option" aria-selected={i === state.active}>
+                    <button
+                      type="button"
+                      className="tray__item"
+                      disabled={busy}
+                      onClick={() => dispatch({ type: "select_item", index: i })}
+                    >
                       <span className={`dot ${ok ? "dot--succeeded" : "dot--failed"}`} aria-hidden="true" />
-                      <span className="truncate">{name}</span>
-                      {!ok && <span className="sr-only">(cannot be converted)</span>}
+                      <span className="truncate">{t.name}</span>
+                      {!ok && <span className="sr-only">(cannot be opened)</span>}
                     </button>
                   </li>
                 );
@@ -531,13 +693,12 @@ export function App() {
           </section>
         )}
 
-        {state.phase === "done" && outcome && file && (
+        {state.phase === "done" && outcome && (
           <section className="panel__section">
             <ResultPanel
-              file={file}
               outcome={outcome}
-              onOpen={() => run(backend?.openPath(outcome.outputPath), "Opened in the default app")}
-              onReveal={() => run(backend?.revealPath(outcome.outputPath), "Shown in folder")}
+              onOpen={() => report(backend?.openPath(outcome.outputPath), "Opened in the default app")}
+              onReveal={() => report(backend?.revealPath(outcome.outputPath), "Shown in folder")}
               onAnother={() => dispatch({ type: "convert_another" })}
               onNewFile={pickFiles}
             />
@@ -550,74 +711,78 @@ export function App() {
               error={state.error}
               onRename={useFreeName}
               onChooseFolder={chooseFolder}
-              onRetry={() => void convert()}
+              onRetry={() => void run()}
               onChooseFile={pickFiles}
               onBack={() => dispatch({ type: "dismiss_error" })}
             />
           </section>
         )}
 
-        {(state.phase === "choose" || state.phase === "configure") && (
+        {state.phase === "choose" && (
           <section className="panel__section">
-            <div className="section-head">
-              <h2 className="section-label">Convert to</h2>
-              {state.target && (
-                <button type="button" className="link" onClick={() => dispatch({ type: "target_cleared" })}>
-                  Clear
-                </button>
-              )}
-            </div>
-            <FormatList
-              capabilities={state.capabilities}
-              selected={state.target}
-              disabled={busy}
-              compact={state.target !== null}
-              onSelect={chooseTarget}
-            />
+            <h2 className="section-label">Actions</h2>
+            <OperationList operations={state.operations} selected={null} disabled={busy} onSelect={chooseOperation} />
           </section>
         )}
 
-        {state.phase === "configure" && cap && file && state.target && (
+        {state.phase === "configure" && op && file && (
           <>
-            <section className="panel__section">
-              <h2 className="section-label">Options</h2>
-              <OptionsPanel
-                cap={cap}
-                file={file}
-                options={state.options}
-                disabled={busy}
-                editing={state.view === "edit"}
-                onOptions={(patch) => dispatch({ type: "options_changed", patch })}
-                onEdits={setEdits}
-                onResetEdits={() => {
-                  setCropping(false);
-                  dispatch({ type: "edits_reset" });
-                }}
-                onToggleEditor={() => {
-                  setCropping(false);
-                  dispatch({ type: "view_changed", view: state.view === "edit" ? "radial" : "edit" });
-                }}
-                onCrop={startCrop}
-              />
+            <section className="panel__section panel__section--tight">
+              <div className="op-head">
+                <span className="op-head__icon" aria-hidden="true">
+                  <OperationIcon op={op.id} />
+                </span>
+                <div>
+                  <h2 className="op-head__title">{op.label}</h2>
+                  <p className="field__hint">{op.description}</p>
+                </div>
+                <button
+                  type="button"
+                  className="link"
+                  aria-label="Change action"
+                  onClick={() => dispatch({ type: "operation_cleared" })}
+                >
+                  Change
+                </button>
+              </div>
             </section>
-            <section className="panel__section">
-              <h2 className="section-label">Save as</h2>
-              <OutputPanel
-                backend={backend}
-                source={file.path}
-                target={state.target}
-                output={state.output}
-                disabled={busy}
-                onChange={(patch) => dispatch({ type: "output_changed", patch })}
-                onChooseFolder={chooseFolder}
-              />
-            </section>
-            {cap.limitations.length > 0 && (
+            <OperationSettings
+              backend={backend}
+              state={state}
+              dispatch={dispatch}
+              file={file}
+              op={op}
+              busy={busy}
+              tool={tool}
+              onTool={setTool}
+              onChooseTarget={chooseTarget}
+              onStartCrop={startCrop}
+              onToggleEditor={() => {
+                setCropping(false);
+                dispatch({ type: "view_changed", view: state.view === "edit" ? "radial" : "edit" });
+              }}
+            />
+            {outFormat && (
+              <section className="panel__section">
+                <h2 className="section-label">Save as</h2>
+                <OutputPanel
+                  backend={backend}
+                  source={file.path}
+                  operation={op.id}
+                  target={outFormat}
+                  output={state.output}
+                  disabled={busy}
+                  onChange={(patch) => dispatch({ type: "output_changed", patch })}
+                  onChooseFolder={chooseFolder}
+                />
+              </section>
+            )}
+            {(op.limitations.length > 0 || (cap?.limitations.length ?? 0) > 0) && (
               <section className="panel__section">
                 <details className="limits">
                   <summary>Good to know</summary>
                   <ul>
-                    {cap.limitations.map((l) => (
+                    {[...new Set([...op.limitations, ...(cap?.limitations ?? [])])].map((l) => (
                       <li key={l}>{l}</li>
                     ))}
                   </ul>
@@ -630,7 +795,8 @@ export function App() {
     );
   }
 
-  const convertTarget = state.phase === "configure" ? state.target : null;
+  const blocked = state.phase === "configure" && op && file ? blockedReason(op, state, file) : null;
+  const showRun = state.phase === "configure" && op !== null;
 
   return (
     <div className={`app${dragOver ? " app--drag-over" : ""}`}>
@@ -647,36 +813,37 @@ export function App() {
           {stage}
           {dragOver && state.phase !== "empty" && (
             <div className="drop-veil" aria-hidden="true">
-              <p>{busy ? "Busy — drop again when the conversion finishes" : "Release to open"}</p>
+              <p>{busy ? "Busy — drop again when the current task finishes" : "Release to open"}</p>
             </div>
           )}
         </div>
         <aside className="panel" aria-label="Details">
           <div className="panel__scroll">{panel}</div>
-          {convertTarget && (
+          {showRun && op && (
             <div className="panel__footer">
+              {blocked && <p className="panel__blocked">{blocked}</p>}
               <button
                 type="button"
                 className="btn btn--primary btn--lg btn--block"
-                onClick={() => void convert()}
-                disabled={!state.output || !!stemProblem(state.output.stem)}
+                onClick={() => void run()}
+                disabled={!readyToRun(state) || !!blocked || !state.output || !!stemProblem(state.output.stem)}
               >
-                Convert to {FORMAT_LABEL[convertTarget]}
+                {runLabel(op, state, state.target ? FORMAT_LABEL[state.target] : null)}
                 <kbd className="kbd--on-accent">Ctrl ↵</kbd>
               </button>
             </div>
           )}
         </aside>
       </main>
-      <StatusBar message={status} engine={cap?.engineLabel ?? "Built-in image engine"} />
+      <StatusBar message={status} engine={op?.engineLabel ?? "Built-in image engine"} />
 
       {overlay === "history" && (
         <HistoryDrawer
           entries={history}
           keepHistory={settings.keepHistory}
           onClose={() => setOverlay(null)}
-          onOpen={(p) => run(backend?.openPath(p), "Opened in the default app")}
-          onReveal={(p) => run(backend?.revealPath(p), "Shown in folder")}
+          onOpen={(p) => report(backend?.openPath(p), "Opened in the default app")}
+          onReveal={(p) => report(backend?.revealPath(p), "Shown in folder")}
           onRetry={retryFromHistory}
           onClear={() =>
             backend

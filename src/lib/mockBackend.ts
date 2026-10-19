@@ -6,14 +6,17 @@
 import type { Backend, DragState } from "./backend";
 import type {
   Capability,
-  ConvertOutcome,
-  ConvertRequest,
   Edits,
   FileInfo,
   Format,
   HistoryEntry,
   ImportResult,
   JobStage,
+  MetadataReport,
+  Operation,
+  OperationId,
+  OperationOutcome,
+  OperationRequest,
   OptionSpec,
   RadialError,
   Settings,
@@ -45,6 +48,82 @@ function caps(from: Format): Capability[] {
       cancellation: "between_stages",
     };
   });
+}
+
+const SUFFIX: Record<OperationId, string> = {
+  convert: "",
+  compress: "-compressed",
+  edit: "-edited",
+  crop: "-cropped",
+  annotate: "-annotated",
+  redact: "-redacted",
+  background: "-background",
+  metadata: "-metadata",
+};
+
+/** Mirrors `ops::operations_for` in the Rust core for image files. */
+function operations(file: FileInfo): Operation[] {
+  const f = file.format ?? "png";
+  const op = (id: OperationId, label: string, description: string, options: OptionSpec[], extra: Partial<Operation> = {}): Operation => ({
+    id,
+    label,
+    description,
+    available: true,
+    reason: null,
+    engineLabel: "Built-in image engine",
+    options,
+    limitations: ["Camera metadata (EXIF, GPS) is not copied to the result."],
+    outputFormat: f,
+    targets: [],
+    preview: false,
+    cancellation: "between_stages",
+    ...extra,
+  });
+  const quality: OptionSpec[] = f === "jpeg" || f === "webp" ? [{ kind: "quality", min: 1, max: 100, default: 75 }] : [];
+  const compressible = f === "jpeg" || f === "webp" || f === "png" || f === "tiff";
+  return [
+    op("convert", "Convert", "Save in another format", [], { outputFormat: null, targets: caps(f) }),
+    op("compress", "Compress", "Make the file smaller", [...quality, ...(f === "png" ? [{ kind: "optimize" } as const] : []), { kind: "max_dimension" }], {
+      available: compressible,
+      reason: compressible ? null : f === "bmp" ? "BMP is uncompressed by design. Convert to PNG for a lossless smaller file." : "GIF compression would drop animation frames. Convert to PNG or WebP instead.",
+      limitations: ["If the result isn't smaller than the original, nothing is saved."],
+    }),
+    op("edit", "Edit", "Rotate, resize and adjust tone", [{ kind: "rotate" }, { kind: "resize" }, { kind: "brightness_contrast" }, ...quality], { preview: true }),
+    op("crop", "Crop", "Trim to an area", [{ kind: "crop" }, { kind: "rotate" }], { preview: true }),
+    op("annotate", "Annotate", "Draw arrows, shapes and text", [{ kind: "shapes" }], {
+      preview: true,
+      limitations: ["Annotations become part of the image pixels in the saved copy."],
+    }),
+    op("redact", "Redact", "Black out sensitive areas", [{ kind: "regions" }], {
+      preview: true,
+      limitations: ["The pixels under each box are replaced with solid black in the saved copy; nothing underneath can be recovered from it.", "All metadata, including location and embedded thumbnails, is removed."],
+    }),
+    op("background", "Background", file.hasAlpha ? "Fill transparency with a colour" : "Add a coloured border", [{ kind: "background" }, { kind: "padding" }], { preview: true }),
+    op("metadata", "Metadata", "View, edit or remove metadata", f === "jpeg" || f === "png" ? [{ kind: "metadata_fields" }, { kind: "strip_metadata" }] : [], {
+      limitations: [f === "jpeg" || f === "png" ? "Edits are lossless: image data is copied unchanged." : `${LABEL[f]} metadata can be viewed but not edited yet.`],
+    }),
+  ];
+}
+
+function metadataReport(file: FileInfo): MetadataReport {
+  const editable = file.format === "jpeg" || file.format === "png";
+  return {
+    fields: [
+      { key: "title", label: "Title", value: "Golden hour", editable },
+      { key: "author", label: "Author", value: null, editable },
+      { key: "subject", label: "Subject", value: null, editable },
+      { key: "keywords", label: "Keywords", value: null, editable },
+      { key: "copyright", label: "Copyright", value: null, editable },
+    ],
+    details: [
+      { label: "Camera model", value: "X1" },
+      { label: "GPS location", value: "30° 2' 40\" N 31° 14' 9\" E" },
+    ],
+    canEdit: editable,
+    canStrip: editable,
+    hasLocation: true,
+    notes: editable ? [] : [`Editing metadata isn't supported for ${LABEL[file.format ?? "png"]} yet.`],
+  };
 }
 
 export function sampleFile(name = "Golden hour — 夕焼け.png", over: Partial<FileInfo> = {}): FileInfo {
@@ -142,6 +221,7 @@ export function createMockBackend(): Backend {
   const dragListeners = new Set<(s: DragState) => void>();
   const cancelled = new Set<string>();
   const outputs = new Set<string>();
+  const known = new Map<string, FileInfo>();
   let history: HistoryEntry[] = [];
   let settings: Settings = {
     defaultDestination: null,
@@ -154,7 +234,7 @@ export function createMockBackend(): Backend {
 
   const controls: MockControls = {
     nextPick: [asImport(sampleFile())],
-    drop: (files) => dropListeners.forEach((l) => l(files)),
+    drop: (files) => dropListeners.forEach((l) => l(remember(files))),
     drag: (s) => dragListeners.forEach((l) => l(s)),
     failNext: null,
     stageDelay: 350,
@@ -162,6 +242,12 @@ export function createMockBackend(): Backend {
     sampleFile,
   };
   window.__radialMock = controls;
+
+  function remember(items: ImportResult[]): ImportResult[] {
+    for (const i of items) if (i.type === "file") known.set(i.path, i);
+    return items;
+  }
+  const fileFor = (path: string): FileInfo => known.get(path) ?? sampleFile();
 
   const dirOf = (p: string) => p.slice(0, p.lastIndexOf("/"));
   const stemOf = (p: string) => {
@@ -173,19 +259,22 @@ export function createMockBackend(): Backend {
 
   return {
     takeLaunchFiles: async () => [],
-    pickFiles: async () => controls.nextPick,
+    pickFiles: async () => remember(controls.nextPick),
     pickDirectory: async () => "/home/demo/Exports",
     sourceFormats: async () => FORMATS,
-    capabilities: async (f) => caps(f),
-    suggestOutput: async (source, target, destDir, stem) => {
+    operations: async (path) => operations(fileFor(path)),
+    readMetadata: async (path) => metadataReport(fileFor(path)),
+    suggestOutput: async (source, operation, target, destDir, stem) => {
       const dir = destDir ?? settings.defaultDestination ?? dirOf(source);
-      const base = stem ?? stemOf(source);
+      const base = stem ?? `${stemOf(source)}${SUFFIX[operation]}`;
       let s = base;
       for (let n = 2; taken(`${dir}/${s}.${EXT[target]}`); n++) s = `${base} (${n})`;
       return { destDir: dir, stem: s, fileName: `${s}.${EXT[target]}` };
     },
-    convert: async (jobId: string, req: ConvertRequest): Promise<ConvertOutcome> => {
-      const out = `${req.destDir}/${req.stem}.${EXT[req.target]}`;
+    runOperation: async (jobId: string, req: OperationRequest): Promise<OperationOutcome> => {
+      const file = fileFor(req.source);
+      const target: Format = req.target ?? file.format ?? "png";
+      const out = `${req.destDir}/${req.stem}.${EXT[target]}`;
       const record = (status: HistoryEntry["status"], err: RadialError | null, outputPath: string | null) => {
         if (!settings.keepHistory) return;
         history = [
@@ -193,8 +282,9 @@ export function createMockBackend(): Backend {
             id: jobId,
             sourceName: req.source.slice(req.source.lastIndexOf("/") + 1),
             sourcePath: req.source,
-            sourceFormat: "png",
-            targetFormat: req.target,
+            sourceFormat: file.format ?? "png",
+            operation: req.operation,
+            targetFormat: target,
             timestamp: Date.now(),
             status,
             outputPath,
@@ -220,7 +310,7 @@ export function createMockBackend(): Backend {
       if (taken(out)) {
         const e: RadialError = {
           kind: "destination_exists",
-          message: `“${req.stem}.${EXT[req.target]}” already exists. Choose another name.`,
+          message: `“${req.stem}.${EXT[target]}” already exists. Choose another name.`,
           retryable: true,
         };
         record("failed", e, null);
@@ -235,13 +325,20 @@ export function createMockBackend(): Backend {
       outputs.add(out);
       record("succeeded", null, out);
       const r = req.options.resize;
+      const size = req.operation === "compress" ? 912_400 : target === "jpeg" ? 612_480 : 1_204_311;
       return {
         outputPath: out,
-        sourceFormat: "png",
-        format: req.target,
+        operation: req.operation,
+        sourceFormat: file.format ?? "png",
+        format: target,
         width: r?.width ?? 2400,
         height: r?.height ?? (r?.width ? Math.round((r.width * 2) / 3) : 1600),
-        sizeBytes: req.target === "jpeg" ? 612_480 : 1_204_311,
+        sizeBytes: size,
+        sourceSizeBytes: file.size,
+        notes:
+          req.operation === "redact"
+            ? [`${req.options.redactions.length} area${req.options.redactions.length === 1 ? "" : "s"} replaced with black pixels; metadata removed.`]
+            : [],
       };
     },
     cancel: async (jobId) => {
@@ -257,8 +354,11 @@ export function createMockBackend(): Backend {
     retry: async (id) => {
       const e = history.find((h) => h.id === id);
       if (!e) throw { kind: "not_found", message: "That history entry no longer exists.", retryable: false };
+      const file = asImport(sampleFile(e.sourceName));
+      remember([file]);
       return {
-        file: asImport(sampleFile(e.sourceName)),
+        file,
+        operation: e.operation,
         target: e.targetFormat,
         destDir: e.destDir,
         stem: e.stem,

@@ -6,6 +6,24 @@ All notable changes to RADIAL are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Operations: the radial menu now offers actions for the selected file — Convert, Compress, Edit,
+  Crop, Annotate, Redact, Background and Metadata — chosen by click, drag or keyboard, with an
+  accessible list alternative. Convert opens a second ring of output formats.
+- Typed operation registry (`ops.rs`): availability, reasons, options and limitations per file;
+  the UI renders only what it returns.
+- Compress (JPEG/WebP quality, lossless PNG optimisation, size limit). Results that are not smaller
+  are discarded and reported, never saved.
+- Redact for images: marked areas are replaced with black pixels; all metadata is removed.
+- Annotate for images: arrows, lines, boxes, ellipses and text drawn into the exported pixels.
+- Background: fill transparency with a colour and/or add a border.
+- Metadata: read EXIF/PNG text, edit title/author/subject/keywords/copyright losslessly
+  (JPEG/PNG), or remove all metadata while keeping orientation.
+- History records the action; annotation text, redaction areas and metadata values are never stored.
+
+### Fixed
+- Re-opening the same file from history now reloads its actions.
+
 ## [0.1.0] — 2026-10-18
 
 First working release: local image conversion around a radial format selector.

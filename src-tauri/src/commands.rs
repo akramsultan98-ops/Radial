@@ -2,10 +2,11 @@
 //! session allowlist before touching the file system.
 
 use crate::state::{lock, AppState, ImportResult, PreviewEntry};
-use radial_core::engine::{self, ConvertOutcome, ConvertRequest, Stage};
+use radial_core::engine::{self, Stage};
 use radial_core::history::{Entry, Status};
+use radial_core::metadata::{self, MetadataReport};
+use radial_core::ops::{self, Operation, OperationId, OperationOutcome, OperationRequest};
 use radial_core::options::{ConvertOptions, Edits};
-use radial_core::registry::Capability;
 use radial_core::settings::Settings;
 use radial_core::{detect, naming, ErrorKind, Format, RadialError, Result};
 use serde::Serialize;
@@ -86,9 +87,33 @@ pub fn source_formats(state: State<'_, AppState>) -> Vec<Format> {
     state.registry.sources()
 }
 
+/// Operations available for a file the user opened, from the registry.
 #[tauri::command]
-pub fn capabilities_for(state: State<'_, AppState>, format: Format) -> Vec<Capability> {
-    state.registry.targets_for(format)
+pub async fn operations_for(app: AppHandle, path: PathBuf) -> Result<Vec<Operation>> {
+    app.state::<AppState>().ensure_file(&path)?;
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let info = detect::inspect(&path)?;
+        Ok(ops::operations_for(&state.registry, &info))
+    })
+    .await
+}
+
+/// Metadata of a file the user opened.
+#[tauri::command]
+pub async fn read_metadata(app: AppHandle, path: PathBuf) -> Result<MetadataReport> {
+    app.state::<AppState>().ensure_file(&path)?;
+    blocking(move || {
+        let info = detect::inspect(&path)?;
+        if let Some(p) = info.problem {
+            return Err(p);
+        }
+        let format = info
+            .format
+            .ok_or_else(|| RadialError::new(ErrorKind::UnsupportedFormat, "Unsupported file."))?;
+        metadata::read_image(&path, format)
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -104,6 +129,7 @@ pub struct OutputSuggestion {
 pub fn suggest_output(
     state: State<'_, AppState>,
     source: PathBuf,
+    operation: OperationId,
     target: Format,
     dest_dir: Option<PathBuf>,
     stem: Option<String>,
@@ -121,7 +147,7 @@ pub fn suggest_output(
     state.ensure_dir(&dir)?;
     let base = match stem {
         Some(s) => naming::validate_stem(&s)?,
-        None => naming::default_stem(&source),
+        None => ops::default_stem(operation, &source),
     };
     let path = naming::unique_path(&dir, &base, target, Some(&source));
     let stem = path
@@ -154,12 +180,12 @@ fn now_ms() -> u64 {
 }
 
 #[tauri::command]
-pub async fn convert(
+pub async fn run_operation(
     app: AppHandle,
     state: State<'_, AppState>,
     job_id: String,
-    request: ConvertRequest,
-) -> Result<ConvertOutcome> {
+    request: OperationRequest,
+) -> Result<OperationOutcome> {
     state.ensure_file(&request.source)?;
     state.ensure_dir(&request.dest_dir)?;
 
@@ -184,7 +210,7 @@ pub async fn convert(
                 (app.clone(), job_id.clone(), request.clone(), cancel.clone());
             blocking(move || {
                 let state = app2.state::<AppState>();
-                engine::convert(&state.registry, &req2, &cancel2, |stage| {
+                ops::run(&state.registry, &req2, &cancel2, |stage| {
                     let s = match stage {
                         Stage::Decoding => "decoding",
                         Stage::Processing => "processing",
@@ -209,8 +235,8 @@ pub async fn convert(
 fn record_history(
     state: &AppState,
     job_id: &str,
-    req: &ConvertRequest,
-    result: &Result<ConvertOutcome>,
+    req: &OperationRequest,
+    result: &Result<OperationOutcome>,
 ) {
     if !lock(&state.settings).keep_history {
         return;
@@ -229,6 +255,21 @@ fn record_history(
         Err(e) if e.kind == ErrorKind::Cancelled => (Status::Cancelled, None, Some(e.kind), None),
         Err(e) => (Status::Failed, None, Some(e.kind), Some(e.message.clone())),
     };
+    let target_format = match result {
+        Ok(o) => o.format,
+        Err(_) => req.target.unwrap_or(source_format),
+    };
+    // Never store user content (annotation text, redaction areas, metadata
+    // values) in history; those operations are retried from scratch.
+    let options = if req.operation.is_sensitive() {
+        ConvertOptions::default()
+    } else {
+        ConvertOptions {
+            annotations: Vec::new(),
+            redactions: Vec::new(),
+            ..req.options.clone()
+        }
+    };
     let entry = Entry {
         id: job_id.to_string(),
         source_name: req
@@ -238,7 +279,8 @@ fn record_history(
             .unwrap_or_default(),
         source_path: req.source.clone(),
         source_format,
-        target_format: req.target,
+        operation: req.operation,
+        target_format,
         timestamp: now_ms(),
         status,
         output_path,
@@ -246,7 +288,7 @@ fn record_history(
         error_message,
         dest_dir: req.dest_dir.clone(),
         stem: req.stem.clone(),
-        options: req.options.clone(),
+        options,
     };
     // History is best-effort; a full disk must not turn a success into an error.
     let _ = lock(&state.history).push(entry);
@@ -332,6 +374,7 @@ pub fn history_clear(state: State<'_, AppState>) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 pub struct RetryPlan {
     file: ImportResult,
+    operation: OperationId,
     target: Format,
     dest_dir: PathBuf,
     stem: String,
@@ -355,6 +398,7 @@ pub async fn history_retry(app: AppHandle, id: String) -> Result<RetryPlan> {
         }
         Ok(RetryPlan {
             file,
+            operation: entry.operation,
             target: entry.target_format,
             dest_dir: entry.dest_dir,
             stem: entry.stem,

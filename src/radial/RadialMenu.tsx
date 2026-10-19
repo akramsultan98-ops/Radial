@@ -1,19 +1,30 @@
-// The radial format selector: output formats arranged in a ring around the
-// selected file. Three equivalent ways to choose:
+// The radial selector: choices (operations, or output formats for Convert)
+// arranged in a ring around the selected file. Three equivalent ways to choose:
 //   • click (or tap) a segment;
 //   • drag the file in the centre onto a segment and release;
 //   • keyboard: arrow keys move around the ring, Enter/Space choose.
-// Choices come only from the capability registry passed in.
+// Items come only from the registry data passed in by the caller.
 
 import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { FormatIcon } from "../components/Icons";
-import type { Capability, Format } from "../lib/types";
 import { clampOffset, hitSegment, layoutSegments, polar, ringMetrics, sectorPath, stepIndex } from "./geometry";
 
+export interface RadialItem {
+  id: string;
+  label: string;
+  icon: ReactNode;
+  available: boolean;
+  /** Accessible name, e.g. "Convert to JPEG". */
+  action: string;
+  /** Why the item is unavailable. */
+  reason?: string | null;
+}
+
 export interface RadialMenuProps {
-  capabilities: Capability[];
-  selected: Format | null;
-  onSelect: (format: Format) => void;
+  items: RadialItem[];
+  selected: string | null;
+  onSelect: (id: string) => void;
+  /** Accessible name of the ring, e.g. "Operations". */
+  label: string;
   /** Square side length in CSS pixels. */
   size: number;
   /** Disable selection (e.g. while converting). */
@@ -35,10 +46,10 @@ interface Drag {
   active: boolean;
 }
 
-export function RadialMenu({ capabilities, selected, onSelect, size, busy = false, children, sourceLabel }: RadialMenuProps) {
+export function RadialMenu({ items: capabilities, selected, onSelect, label, size, busy = false, children, sourceLabel }: RadialMenuProps) {
   const m = ringMetrics(size);
   const segments = useMemo(() => layoutSegments(capabilities.length, capabilities.length > 6 ? 3 : 4), [capabilities.length]);
-  const selectedIndex = capabilities.findIndex((c) => c.to === selected);
+  const selectedIndex = capabilities.findIndex((c) => c.id === selected);
   const [focused, setFocusIndex] = useState<number | null>(null);
   // Roving tab stop: last focused segment, else the selection, else the first.
   const focusIndex = focused !== null && focused < capabilities.length ? focused : Math.max(0, selectedIndex);
@@ -56,7 +67,7 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
     (i: number) => {
       const cap = capabilities[i];
       if (!cap || !cap.available || busy) return;
-      onSelect(cap.to);
+      onSelect(cap.id);
     },
     [capabilities, busy, onSelect],
   );
@@ -166,11 +177,11 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
         <circle className="radial__guide" cx={m.center} cy={m.center} r={m.outer + 4} />
         <circle className="radial__guide" cx={m.center} cy={m.center} r={m.inner - 6} />
 
-        <g role="radiogroup" aria-label="Output format" aria-disabled={busy || undefined}>
+        <g role="radiogroup" aria-label={label} aria-disabled={busy || undefined}>
           {capabilities.map((cap, i) => {
             const seg = segments[i];
             if (!seg) return null;
-            const label = polar(m.center, m.center, m.labelRadius, seg.mid);
+            const at = polar(m.center, m.center, m.labelRadius, seg.mid);
             const push = polar(0, 0, 7, seg.mid);
             const isSelected = i === selectedIndex;
             const isArmed = i === armed;
@@ -185,12 +196,10 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
             ]
               .filter(Boolean)
               .join(" ");
-            const desc = cap.available
-              ? `Convert to ${cap.toLabel}`
-              : `${cap.toLabel} unavailable: ${cap.engineStatus.state === "missing" ? cap.engineStatus.hint : "engine missing"}`;
+            const desc = cap.available ? cap.action : `${cap.label} unavailable: ${cap.reason ?? "not supported for this file"}`;
             return (
               <g
-                key={cap.to}
+                key={cap.id}
                 ref={(el) => {
                   segRefs.current[i] = el;
                 }}
@@ -199,7 +208,7 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
                 aria-checked={isSelected}
                 aria-disabled={!cap.available || busy || undefined}
                 aria-label={desc}
-                data-format={cap.to}
+                data-id={cap.id}
                 tabIndex={i === focusIndex ? 0 : -1}
                 style={{ ["--dx" as string]: `${push.x}px`, ["--dy" as string]: `${push.y}px`, ["--i" as string]: i }}
                 onClick={() => choose(i)}
@@ -208,7 +217,9 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
                 onPointerEnter={() => setHover(i)}
                 onPointerLeave={() => setHover((h) => (h === i ? null : h))}
               >
-                <title>{desc}</title>
+                {/* Native tooltips linger in WebKitGTK after the ring closes, so
+                    only unavailable items (which explain why) get one. */}
+                {!cap.available && <title>{desc}</title>}
                 <g className="seg__inner">
                   <path className="seg__shape" d={sectorPath(m.center, m.center, m.inner, m.outer, seg.start, seg.end)} />
                   {!cap.available && (
@@ -216,20 +227,20 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
                   )}
                   <svg
                     className="seg__icon"
-                    x={label.x - iconSize / 2}
-                    y={label.y - iconSize / 2 - 9}
+                    x={at.x - iconSize / 2}
+                    y={at.y - iconSize / 2 - 9}
                     width={iconSize}
                     height={iconSize}
                     viewBox="0 0 24 24"
                     overflow="visible"
                   >
-                    <FormatIcon format={cap.to} width={24} height={24} />
+                    {cap.icon}
                   </svg>
-                  <text className="seg__label" x={label.x} y={label.y + iconSize / 2 + 6} textAnchor="middle">
-                    {cap.toLabel}
+                  <text className="seg__label" x={at.x} y={at.y + iconSize / 2 + 6} textAnchor="middle">
+                    {cap.label}
                   </text>
                   {i < 9 && (
-                    <text className="seg__key" x={label.x} y={label.y + iconSize / 2 + 19} textAnchor="middle" aria-hidden="true">
+                    <text className="seg__key" x={at.x} y={at.y + iconSize / 2 + 19} textAnchor="middle" aria-hidden="true">
                       {i + 1}
                     </text>
                   )}
@@ -274,7 +285,7 @@ export function RadialMenu({ capabilities, selected, onSelect, size, busy = fals
         <div className="radial__drag-hint" aria-hidden="true">
           {armedCap ? (
             <>
-              Release to convert <strong>{sourceLabel}</strong> → <strong>{armedCap.toLabel}</strong>
+              Release: <strong>{sourceLabel}</strong> → <strong>{armedCap.label}</strong>
             </>
           ) : (
             "Drag onto a format"

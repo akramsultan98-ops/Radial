@@ -23,12 +23,16 @@ interface Props {
   toolbarStart?: ReactNode;
   toolbarEnd?: ReactNode;
   crop?: CropControl | null;
+  /** Drawn over the image at its displayed size (annotation/redaction editors). */
+  overlay?: ((box: { w: number; h: number; natural: { width: number; height: number } }) => ReactNode) | null;
+  /** Background colour and border (in image pixels) shown around the image. */
+  frame?: { color: string; padding: number } | null;
 }
 
 const ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
 const TIERS = [512, 1024, 2048, 4096, 8192];
 
-export function PreviewView({ backend, path, edits, natural, label, toolbarStart, toolbarEnd, crop }: Props) {
+export function PreviewView({ backend, path, edits, natural, label, toolbarStart, toolbarEnd, crop, overlay, frame }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 800, h: 600 });
   const [zoom, setZoom] = useState<number | "fit">("fit");
@@ -44,7 +48,8 @@ export function PreviewView({ backend, path, edits, natural, label, toolbarStart
   }, []);
 
   const pad = 48;
-  const fitScale = Math.min(1, (box.w - pad) / natural.width, (box.h - pad) / natural.height);
+  const border = frame?.padding ?? 0;
+  const fitScale = Math.min(1, (box.w - pad) / (natural.width + 2 * border), (box.h - pad) / (natural.height + 2 * border));
   const scale = zoom === "fit" ? Math.max(0.01, fitScale) : zoom;
   const dispW = Math.max(1, Math.round(natural.width * scale));
   const dispH = Math.max(1, Math.round(natural.height * scale));
@@ -105,13 +110,19 @@ export function PreviewView({ backend, path, edits, natural, label, toolbarStart
         <div className="preview__group">{toolbarEnd}</div>
       </div>
       <div ref={viewport} className="preview__viewport" onWheel={onWheel}>
-        <div className="preview__canvas" style={{ width: dispW, height: dispH }}>
+        <div
+          className={`preview__frame${frame ? " preview__frame--filled" : ""}`}
+          style={frame ? { padding: Math.round(border * scale), background: frame.color } : undefined}
+        >
+        <div className="preview__canvas" style={{ width: dispW, height: dispH, ...(frame ? { background: frame.color } : {}) }}>
           {preview.url ? (
             <img src={preview.url} alt={`${label} preview`} draggable={false} width={dispW} height={dispH} />
           ) : (
             <div className="preview__placeholder" />
           )}
           {crop && <CropOverlay crop={crop} width={dispW} height={dispH} />}
+          {overlay?.({ w: dispW, h: dispH, natural })}
+        </div>
         </div>
       </div>
       {preview.error && (

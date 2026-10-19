@@ -22,7 +22,7 @@ export function EmptyState({ sources, dragOver, onPick }: Props) {
           <IconOpen />
         </div>
       </div>
-      <h1 className="empty__title">{dragOver ? "Release to open" : "Drop an image to begin"}</h1>
+      <h1 className="empty__title">{dragOver ? "Release to open" : "Drop a file to begin"}</h1>
       <p className="empty__sub">
         Convert between formats in one gesture. Everything happens on this computer — nothing is uploaded.
       </p>

@@ -2,6 +2,7 @@
 
 use crate::error::{ErrorKind, Result};
 use crate::format::Format;
+use crate::ops::OperationId;
 use crate::options::ConvertOptions;
 use crate::store;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,10 @@ pub struct Entry {
     /// Kept so a failed conversion can be retried.
     pub source_path: PathBuf,
     pub source_format: Format,
+    /// Older entries (before operations existed) were all conversions.
+    #[serde(default)]
+    pub operation: OperationId,
+    /// Format of the result.
     pub target_format: Format,
     /// Unix epoch milliseconds.
     pub timestamp: u64,
@@ -107,6 +112,7 @@ mod tests {
             source_name: "a.png".into(),
             source_path: "/x/a.png".into(),
             source_format: Format::Png,
+            operation: OperationId::Convert,
             target_format: Format::Jpeg,
             timestamp: 1,
             status: Status::Failed,

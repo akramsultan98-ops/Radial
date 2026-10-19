@@ -134,3 +134,51 @@
 .crop__handle--s { left: 50%; top: 100%; cursor: ns-resize; }
 .crop__handle--sw { left: 0; top: 100%; cursor: nesw-resize; }
 .crop__handle--w { left: 0; top: 50%; cursor: ew-resize; }
+
+/* ---------- Background frame ---------- */
+
+.preview__frame {
+  display: grid;
+  place-items: center;
+  box-sizing: content-box;
+}
+.preview__frame--filled {
+  box-shadow:
+    0 0 0 1px var(--line-2),
+    var(--shadow-3);
+}
+.preview__frame--filled .preview__canvas {
+  box-shadow: none;
+}
+
+/* ---------- Annotation & redaction editors ---------- */
+
+.editor-layer {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+.editor-layer--draw {
+  cursor: crosshair;
+}
+.editor-layer--text {
+  cursor: text;
+}
+.redact-box {
+  position: absolute;
+  background: #000;
+  outline: 1px solid rgba(255, 125, 125, 0.75);
+  pointer-events: none;
+}
+.redact-box span {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  color: rgba(255, 255, 255, 0.6);
+}
+.redact-box--draft {
+  background: rgba(0, 0, 0, 0.7);
+  outline: 1.5px dashed var(--danger);
+}

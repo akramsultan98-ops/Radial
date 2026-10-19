@@ -4,13 +4,17 @@
 //! with real files and no GUI. See `docs/ARCHITECTURE.md`.
 
 pub mod detect;
+pub mod draw;
 pub mod engine;
 pub mod error;
 pub mod format;
 pub mod history;
 pub mod limits;
+pub mod metadata;
 pub mod naming;
+pub mod ops;
 pub mod options;
+pub mod output;
 pub mod paths;
 pub mod registry;
 pub mod settings;

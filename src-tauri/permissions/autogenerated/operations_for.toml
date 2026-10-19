@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-operations-for"
+description = "Enables the operations_for command without any pre-configured scope."
+commands.allow = ["operations_for"]
+
+[[permission]]
+identifier = "deny-operations-for"
+description = "Denies the operations_for command without any pre-configured scope."
+commands.deny = ["operations_for"]

@@ -16,6 +16,10 @@
   gap: var(--space-3);
   animation: fade-up var(--dur-3) var(--ease-out) both;
 }
+/* Grid items default to min-width: auto, which stops long paths truncating. */
+.panel__section > * {
+  min-width: 0;
+}
 .panel__section + .panel__section {
   border-top: 1px solid var(--line-1);
 }
@@ -614,4 +618,130 @@ kbd.kbd--on-accent {
 .settings section {
   display: grid;
   gap: var(--space-4);
+}
+
+/* ---------- Operation header & footer ---------- */
+
+.panel__section--tight {
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+}
+.op-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+.op-head__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.op-head__icon svg {
+  width: 20px;
+  height: 20px;
+}
+.op-head__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.panel__blocked {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* ---------- Swatches & lists ---------- */
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.swatch {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line-3);
+  box-shadow: inset 0 0 0 2px var(--surface-1);
+}
+.swatch[aria-checked="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.swatch--sm {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  box-shadow: none;
+}
+
+.segmented--wide {
+  display: flex;
+  width: 100%;
+}
+.segmented--wide button {
+  flex: 1;
+  padding: 0 var(--space-1);
+}
+
+.shape-list ul {
+  display: grid;
+  gap: 2px;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.shape-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+}
+.shape-list li:hover {
+  background: var(--surface-2);
+}
+.shape-list li .truncate {
+  flex: 1;
+}
+
+.meta-details {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+}
+.meta-details div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.meta-details dt {
+  color: var(--text-3);
+}
+.meta-details dd {
+  margin: 0;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.savings {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--success-soft);
+  overflow: hidden;
+}
+.savings span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
 }
