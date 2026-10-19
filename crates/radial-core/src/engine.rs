@@ -223,7 +223,7 @@ fn prepare(img: DynamicImage, target: Format, bg: Rgb) -> DynamicImage {
             D::ImageRgba32F(_) => D::ImageRgba16(img.to_rgba16()),
             other => other,
         },
-        Format::Pdf | Format::Txt => img,
+        Format::Pdf | Format::Txt | Format::Docx => img,
         Format::Tiff => match img {
             D::ImageLuma8(_)
             | D::ImageLuma16(_)
@@ -345,7 +345,7 @@ fn encode<W: Write + std::io::Seek>(
         }
         Format::Tiff => encode_tiff(img, w),
         Format::Bmp | Format::Gif => img.write_to(w, target.codec()?).map_err(enc_err),
-        Format::Pdf | Format::Txt => Err(RadialError::new(
+        Format::Pdf | Format::Txt | Format::Docx => Err(RadialError::new(
             ErrorKind::Internal,
             "Not an image target.",
         )),

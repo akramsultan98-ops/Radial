@@ -13,7 +13,7 @@
 //! [`page_point`] map them to PDF user space with PDFium's own device
 //! transform, so rotated and offset pages are handled exactly as rendered.
 
-mod annotate;
+pub(crate) mod annotate;
 mod compress;
 mod convert;
 mod meta;
@@ -457,7 +457,7 @@ pub(crate) fn char_counts(doc: &PdfDocument) -> Vec<usize> {
 }
 
 /// Serialise a pdfium document.
-pub(crate) fn save(doc: &PdfDocument) -> Result<Vec<u8>> {
+pub fn save(doc: &PdfDocument) -> Result<Vec<u8>> {
     doc.save_to_bytes()
         .map_err(|e| pdf_err("saving the document", e))
 }

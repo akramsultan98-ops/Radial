@@ -141,6 +141,9 @@ pub fn operations_for(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
     if f == Format::Pdf {
         return pdf_operations(registry, info);
     }
+    if matches!(f, Format::Txt | Format::Docx) {
+        return document_operations(registry, f);
+    }
     let quality = |o: &mut Operation| o.options.extend(quality_spec(f));
     let gif_note =
         (f == Format::Gif).then(|| "Only the first frame of an animated GIF is kept.".to_string());
@@ -199,7 +202,7 @@ pub fn operations_for(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
                 "GIF compression would drop animation frames. Convert to PNG or WebP instead.",
             );
         }
-        Format::Pdf | Format::Txt => unreachable!("not an image"),
+        Format::Pdf | Format::Txt | Format::Docx => unreachable!("not an image"),
     }
     compress
         .limitations
@@ -403,6 +406,62 @@ fn pdf_operations(registry: &Registry, info: &FileInfo) -> Vec<Operation> {
     ops
 }
 
+/// Operations for text files and Word documents: convert, and (Word)
+/// document properties. Everything else is listed as unavailable.
+fn document_operations(registry: &Registry, f: Format) -> Vec<Operation> {
+    let engine = if f == Format::Docx {
+        "Built-in Word reader"
+    } else {
+        "Built-in text engine"
+    };
+    let mut ops = Vec::new();
+    for id in OperationId::ALL {
+        let mut o = op(id, "", Some(f));
+        o.engine_label = engine;
+        match id {
+            OperationId::Convert => {
+                o.description = if f == Format::Docx {
+                    "Extract the text".into()
+                } else {
+                    "Make a PDF".into()
+                };
+                o.output_format = None;
+                o.targets = registry.targets_for(f);
+                o.available = o.targets.iter().any(|c| c.available);
+                if f == Format::Docx {
+                    o.limitations.push("Word → PDF needs a full layout engine (such as LibreOffice or Word) and isn't offered.".into());
+                }
+            }
+            OperationId::Metadata if f == Format::Docx => {
+                o.description = "View, edit or remove document properties".into();
+                o.options
+                    .extend([OptionSpec::MetadataFields, OptionSpec::StripMetadata]);
+                o.limitations.push(
+                    "Only the properties change; the document's content is copied unchanged."
+                        .into(),
+                );
+            }
+            _ => {
+                o.description = id.label().into();
+                let what = if f == Format::Docx {
+                    "Word documents"
+                } else {
+                    "text files"
+                };
+                o = unavailable(
+                    o,
+                    format!(
+                        "{} isn't available for {what} yet. It works on images and PDFs.",
+                        id.label()
+                    ),
+                );
+            }
+        }
+        ops.push(o);
+    }
+    ops
+}
+
 fn quality_spec(f: Format) -> Option<OptionSpec> {
     match f {
         Format::Jpeg => Some(OptionSpec::Quality {
@@ -586,6 +645,38 @@ pub fn run(
     if from == Format::Pdf {
         return run_pdf(&source, &info, op, req, cancel, on_stage);
     }
+    if matches!(from, Format::Txt | Format::Docx) {
+        let target = req
+            .target
+            .filter(|t| op.targets.iter().any(|c| c.to == *t && c.available))
+            .ok_or_else(|| invalid("Choose a format to convert to."))?;
+        return write_pdf_result(
+            &source,
+            &info,
+            req,
+            target,
+            cancel,
+            &mut on_stage,
+            |c| match (from, target) {
+                (Format::Txt, Format::Pdf) => crate::doc::text::to_pdf(&source, c),
+                (Format::Docx, Format::Txt) => {
+                    let text = crate::doc::docx::to_text(&source)?;
+                    let paragraphs = text.lines().filter(|l| !l.trim().is_empty()).count();
+                    Ok((
+                        text.into_bytes(),
+                        vec![format!(
+                            "{} extracted; formatting and images are not included.",
+                            pdf::plural(paragraphs, "paragraph", "paragraphs")
+                        )],
+                    ))
+                }
+                _ => Err(RadialError::new(
+                    ErrorKind::UnsupportedConversion,
+                    "That conversion isn't supported.",
+                )),
+            },
+        );
+    }
 
     let target = match req.operation {
         OperationId::Convert => {
@@ -675,6 +766,24 @@ fn run_metadata(
                 let (bytes, notes) = pdf::write_metadata(&data, &req.metadata)?;
                 pdf::verify_metadata(&bytes, &req.metadata)?;
                 pdf::verify_pages(&bytes, info.pages.unwrap_or(0))?;
+                Ok((bytes, notes))
+            },
+        );
+    }
+    if from == Format::Docx {
+        req.metadata.validate(&crate::doc::docx::editable_keys())?;
+        return write_pdf_result(
+            source,
+            info,
+            req,
+            Format::Docx,
+            cancel,
+            &mut on_stage,
+            |_| {
+                let data = std::fs::read(source)
+                    .map_err(|e| RadialError::from_io(&e, "reading the file"))?;
+                let (bytes, notes) = crate::doc::docx::write_metadata(&data, &req.metadata)?;
+                crate::doc::docx::verify(&data, &bytes, &req.metadata)?;
                 Ok((bytes, notes))
             },
         );

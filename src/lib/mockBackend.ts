@@ -32,6 +32,7 @@ const LABEL: Record<Format, string> = {
   gif: "GIF",
   pdf: "PDF",
   txt: "Text",
+  docx: "Word",
 };
 const EXT: Record<Format, string> = {
   png: "png",
@@ -42,6 +43,7 @@ const EXT: Record<Format, string> = {
   gif: "gif",
   pdf: "pdf",
   txt: "txt",
+  docx: "docx",
 };
 const ALPHA: Format[] = ["png", "webp", "tiff", "gif"];
 
@@ -71,6 +73,15 @@ function pdfCaps(): Capability[] {
 
 function caps(from: Format): Capability[] {
   if (from === "pdf") return pdfCaps();
+  if (from === "txt") return [cap("txt", "pdf", "PDF engine (PDFium)", [], ["Typeset on A4 in a single font and size."])];
+  if (from === "docx") {
+    return [
+      {
+        ...cap("docx", "txt", "Built-in Word reader", [], ["Keeps the words and paragraphs; formatting and images are left out."]),
+        engine: "docx",
+      },
+    ];
+  }
   const toPdf = cap(from, "pdf", "Built-in PDF writer", [], ["The image is placed on an A4 page."]);
   return [...FORMATS.filter((f) => f !== from).map((to) => {
     const options: OptionSpec[] = [];
@@ -145,9 +156,33 @@ function pdfOperations(file: FileInfo): Operation[] {
   ];
 }
 
+/** Mirrors `document_operations` in the Rust core. */
+function documentOperations(f: "txt" | "docx"): Operation[] {
+  const ids: OperationId[] = ["convert", "compress", "edit", "crop", "annotate", "redact", "background", "metadata"];
+  return ids.map((id) => {
+    const live = id === "convert" || (id === "metadata" && f === "docx");
+    const label = id[0]?.toUpperCase() + id.slice(1);
+    return {
+      id,
+      label,
+      description: id === "convert" ? (f === "docx" ? "Extract the text" : "Make a PDF") : id === "metadata" ? "View, edit or remove document properties" : label,
+      available: live,
+      reason: live ? null : `${label} isn't available for ${f === "docx" ? "Word documents" : "text files"} yet. It works on images and PDFs.`,
+      engineLabel: f === "docx" ? "Built-in Word reader" : "Built-in text engine",
+      options: id === "metadata" && live ? [{ kind: "metadata_fields" }, { kind: "strip_metadata" }] : [],
+      limitations: [],
+      outputFormat: id === "convert" ? null : f,
+      targets: id === "convert" ? caps(f) : [],
+      preview: false,
+      cancellation: "between_stages",
+    };
+  });
+}
+
 /** Mirrors `ops::operations_for` in the Rust core for image files. */
 function operations(file: FileInfo): Operation[] {
   if (file.format === "pdf") return pdfOperations(file);
+  if (file.format === "txt" || file.format === "docx") return documentOperations(file.format);
   const f = file.format ?? "png";
   const op = (id: OperationId, label: string, description: string, options: OptionSpec[], extra: Partial<Operation> = {}): Operation => ({
     id,
@@ -191,6 +226,24 @@ function operations(file: FileInfo): Operation[] {
 }
 
 function metadataReport(file: FileInfo): MetadataReport {
+  if (file.format === "docx") {
+    return {
+      fields: [
+        { key: "title", label: "Title", value: "Client memo", editable: true },
+        { key: "author", label: "Author", value: "Old author", editable: true },
+        { key: "subject", label: "Subject", value: null, editable: true },
+        { key: "keywords", label: "Keywords", value: null, editable: true },
+      ],
+      details: [
+        { label: "Last modified by", value: "Jane Doe" },
+        { label: "Company", value: "ACME Corporation" },
+      ],
+      canEdit: true,
+      canStrip: true,
+      hasLocation: false,
+      notes: ["“Last modified by”, company and dates are read-only here; “Remove all” clears them."],
+    };
+  }
   if (file.format === "pdf") {
     const editable = !file.restricted && !file.signed;
     return {
@@ -251,6 +304,20 @@ export function sampleFile(name = "Golden hour — 夕焼け.png", over: Partial
   };
 }
 
+export function sampleDocx(name = "Client memo.docx", over: Partial<FileInfo> = {}): FileInfo {
+  return sampleFile(name, {
+    path: `/home/demo/Documents/${name}`,
+    size: 36_920,
+    recognized: { kind: "convertible", format: "docx" },
+    format: "docx",
+    width: null,
+    height: null,
+    hasAlpha: false,
+    bitDepth: null,
+    ...over,
+  });
+}
+
 export function samplePdf(name = "Quarterly report.pdf", over: Partial<FileInfo> = {}): FileInfo {
   return sampleFile(name, {
     path: `/home/demo/Documents/${name}`,
@@ -285,6 +352,7 @@ interface MockControls {
   existing: Set<string>;
   sampleFile: typeof sampleFile;
   samplePdf: typeof samplePdf;
+  sampleDocx: typeof sampleDocx;
   /** Pages requested from `preview`, most recent last. */
   previewPages: number[];
 }
@@ -392,6 +460,7 @@ export function createMockBackend(): Backend {
     existing: new Set(),
     sampleFile,
     samplePdf,
+    sampleDocx,
     previewPages: [],
   };
   window.__radialMock = controls;
@@ -414,7 +483,7 @@ export function createMockBackend(): Backend {
     takeLaunchFiles: async () => [],
     pickFiles: async () => remember(controls.nextPick),
     pickDirectory: async () => "/home/demo/Exports",
-    sourceFormats: async () => [...FORMATS, "pdf"],
+    sourceFormats: async () => [...FORMATS, "pdf", "txt", "docx"],
     operations: async (path) => operations(fileFor(path)),
     readMetadata: async (path) => metadataReport(fileFor(path)),
     suggestOutput: async (source, operation, target, destDir, stem) => {
@@ -479,6 +548,19 @@ export function createMockBackend(): Backend {
       record("succeeded", null, out);
       const r = req.options.resize;
       const size = req.operation === "compress" ? 912_400 : target === "jpeg" ? 612_480 : 1_204_311;
+      if (file.format === "docx" || file.format === "txt") {
+        return {
+          outputPath: out,
+          operation: req.operation,
+          sourceFormat: file.format,
+          format: target,
+          width: null,
+          height: null,
+          sizeBytes: target === "txt" ? 1_204 : 36_410,
+          sourceSizeBytes: file.size,
+          notes: [],
+        };
+      }
       if (file.format === "pdf" || target === "pdf") {
         const pdfOut = target === "pdf";
         const notes =

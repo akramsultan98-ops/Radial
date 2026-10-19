@@ -32,7 +32,7 @@ fn axes(p: &PdfPage) -> Result<((f32, f32), (f32, f32))> {
 }
 
 /// Characters Helvetica (WinAnsi) can show; anything else needs an embedded font.
-fn winansi(s: &str) -> bool {
+pub(crate) fn winansi(s: &str) -> bool {
     s.chars()
         .all(|c| matches!(c, '\n' | '\r' | ' '..='~' | '\u{a0}'..='\u{ff}' | '€' | '–' | '—' | '‘' | '’' | '“' | '”' | '•' | '…'))
 }

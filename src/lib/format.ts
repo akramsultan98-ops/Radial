@@ -11,6 +11,7 @@ export const FORMAT_LABEL: Record<Format, string> = {
   gif: "GIF",
   pdf: "PDF",
   txt: "Text",
+  docx: "Word",
 };
 
 export const OPERATION_LABEL: Record<OperationId, string> = {
@@ -33,6 +34,7 @@ export const FORMAT_EXT: Record<Format, string> = {
   gif: "gif",
   pdf: "pdf",
   txt: "txt",
+  docx: "docx",
 };
 
 /** One-line character of each format, shown in the accessible format list. */
@@ -45,7 +47,11 @@ export const FORMAT_HINT: Record<Format, string> = {
   gif: "256 colours",
   pdf: "Documents, print",
   txt: "Plain text, no layout",
+  docx: "Word document",
 };
+
+/** Formats the preview pipeline can render. */
+export const PREVIEWABLE = (f: Format | null): boolean => f !== null && f !== "txt" && f !== "docx";
 
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";

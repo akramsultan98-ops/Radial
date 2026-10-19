@@ -26,11 +26,13 @@ RADIAL has three layers with one-way dependencies:
 
 Detection never trusts file names.
 
-1. **Sniff** the first 64 bytes for a signature. Convertible formats (PNG, JPEG, WebP, BMP, TIFF,
-   GIF) map to `Recognized::Convertible`. Many others (PDF, HEIC, AVIF, MP4, MP3, WAV, ZIP/Office,
-   SVG, PSD, executables…) map to `Recognized::Known` so the UI can say *"PDF files are recognised
+1. **Sniff** the first 64 bytes for a signature. Supported formats (PNG, JPEG, WebP, BMP, TIFF,
+   GIF, PDF) map to `Recognized::Convertible`. Many others (HEIC, AVIF, MP4, MP3, WAV, ZIP/Office,
+   SVG, PSD, executables…) map to `Recognized::Known` so the UI can say *"HEIC files are recognised
    but cannot be converted yet"* instead of *"unknown file"*. BMP's weak `BM` signature also
-   requires a valid DIB header size.
+   requires a valid DIB header size. A ZIP is promoted to **Word** when it contains
+   `[Content_Types].xml` and `word/document.xml`; **plain text** (no signature) is accepted only
+   with a `.txt` extension *and* content that decodes as text.
 2. **Parse the header** with the decoder for the sniffed format (not one guessed from the
    extension), under safety limits. This proves the file is *readable* and yields dimensions,
    alpha and bit depth.
@@ -111,6 +113,44 @@ that covers what's on screen.
 **History and settings** are JSON files in the per-user app data folder, written atomically.
 History stores names, paths, formats, status, error category and options — never file contents —
 and is capped at 200 entries.
+
+## Operations (`ops.rs`)
+
+`operations_for(registry, file)` returns all eight actions for a file, each `available` or
+disabled with a `reason`, plus its options and limitations. It is the only source the UI uses to
+draw the ring. `run(request)` re-checks availability (the backend refuses anything not offered),
+sanitises options per action, and dispatches:
+
+- images → `engine.rs` (`image_job`/`encode_job`), `draw.rs` (annotations, redaction boxes),
+  `metadata.rs` (lossless EXIF / PNG text edits);
+- PDFs → `pdf/` (below);
+- Word and text → `doc/docx.rs`, `doc/text.rs`.
+
+Every action that writes a file follows `output.rs`: plan (validate name, never the source, never
+an existing file) → stage a hidden temp file beside the destination → verify → no-clobber rename.
+
+## PDF engine (`pdf/`)
+
+- **PDFium** (BSD-3-Clause; pinned build `chromium/7881` from bblanchon/pdfium-binaries, SHA-256
+  checked by `scripts/fetch-pdfium.mjs`) is loaded at runtime from the app's `pdfium/` resource
+  folder. It renders pages, extracts/searches text and edits page content. If it is missing, PDF
+  actions report `engine_missing` instead of failing obscurely.
+- **lopdf** (MIT) rewrites the document structure: metadata, compression, and dropping
+  unreferenced objects so removed content never lingers.
+- Positions from the UI are fractions of the page *as displayed*; `page_rect`/`page_point` map
+  them with PDFium's own device transform, so rotated and cropped pages are exact.
+- **Redaction** replaces each affected page with a rendered image in which the areas are black,
+  deletes every original object and annotation on it, prunes orphaned form fields, thumbnails,
+  tags and metadata, rebuilds the file, and verifies: no text on redacted pages, other pages'
+  text unchanged, search terms absent from every page and from every string in the file.
+
+## Documents (`doc/`)
+
+- `docx.rs` reads the ZIP package with size limits; text comes from `word/document.xml`
+  (paragraphs, tabs, breaks; tracked deletions and field codes skipped). Property edits rewrite
+  `docProps/core.xml` (and `app.xml` when stripping) and copy every other entry raw.
+- `text.rs` decodes UTF-8/UTF-16 text and typesets it on A4 with PDFium (Courier, or embedded
+  DejaVu Sans for non-Latin text), verifying that the PDF contains exactly the source characters.
 
 ## Frontend
 

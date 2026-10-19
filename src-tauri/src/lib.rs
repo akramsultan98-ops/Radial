@@ -3,7 +3,13 @@
 
 mod access;
 mod commands;
+mod selftest;
 mod state;
+
+/// Windowless self-test (see `selftest.rs`).
+pub fn self_test(report: Option<std::path::PathBuf>) -> i32 {
+    selftest::run(report)
+}
 
 use state::AppState;
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};

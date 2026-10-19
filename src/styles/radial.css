@@ -329,3 +329,8 @@
 :root[data-motion="reduced"] .orbit__arc {
   animation-duration: 3s;
 }
+.orb__thumb .orb__doc-icon {
+  width: 44%;
+  height: 44%;
+  color: var(--text-2);
+}

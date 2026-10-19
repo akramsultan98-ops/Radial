@@ -89,6 +89,15 @@ pub fn redact(
             }
         }
         if hits == 0 && opts.regions.is_empty() {
+            // The words may still be in the file outside page text.
+            if let Some(found) = find_in_file(source, &terms)? {
+                return Err(RadialError::new(
+                    ErrorKind::UnsupportedConversion,
+                    format!(
+                        "“{found}” isn't in the text of any page, but it appears elsewhere in the file (for example a bookmark, form value or attachment name), which RADIAL can't redact. Nothing was saved."
+                    ),
+                ));
+            }
             return Err(invalid(
                 "None of the search terms were found in the PDF's text. Nothing was changed. (Scanned pages have no text to search; mark those areas by hand.)",
             ));
@@ -538,6 +547,19 @@ fn verify(
         }
     }
     Ok(())
+}
+
+/// Search every string object of a PDF for any of `terms` (case-insensitive).
+fn find_in_file(path: &Path, terms: &[String]) -> Result<Option<String>> {
+    let data = std::fs::read(path).map_err(|e| RadialError::from_io(&e, "reading the file"))?;
+    let Ok(doc) = super::load_lopdf(&data) else {
+        return Ok(None);
+    };
+    let lowered: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+    Ok(doc
+        .objects
+        .values()
+        .find_map(|o| find_string(o, &lowered, 0)))
 }
 
 fn find_string(obj: &Object, terms: &[String], depth: u8) -> Option<String> {

@@ -3,6 +3,7 @@ name = "radial"
 description = "RADIAL desktop shell"
 version.workspace = true
 edition.workspace = true
+publish.workspace = true
 rust-version.workspace = true
 default-run = "radial"
 
@@ -21,3 +22,4 @@ tauri-plugin-opener = "2.7.2"
 tokio = { version = "1", features = ["sync"] }
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true

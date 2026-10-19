@@ -52,7 +52,7 @@ pub async fn pick_files(app: AppHandle) -> Result<Vec<ImportResult>> {
             .dialog()
             .file()
             .set_title("Choose a file")
-            .add_filter("Images and PDFs", &exts)
+            .add_filter("Supported files", &exts)
             .add_filter("All files", &["*"])
             .blocking_pick_files();
         let paths: Vec<PathBuf> = picked
@@ -112,10 +112,14 @@ pub async fn read_metadata(app: AppHandle, path: PathBuf) -> Result<MetadataRepo
         let format = info
             .format
             .ok_or_else(|| RadialError::new(ErrorKind::UnsupportedFormat, "Unsupported file."))?;
-        if format == Format::Pdf {
-            radial_core::pdf::read_metadata(&path)
-        } else {
-            metadata::read_image(&path, format)
+        match format {
+            Format::Pdf => radial_core::pdf::read_metadata(&path),
+            Format::Docx => radial_core::doc::docx::read_metadata(&path),
+            Format::Txt => Err(RadialError::new(
+                ErrorKind::UnsupportedFormat,
+                "Plain text files have no metadata.",
+            )),
+            _ => metadata::read_image(&path, format),
         }
     })
     .await

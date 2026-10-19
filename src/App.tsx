@@ -26,7 +26,7 @@ import { PreviewView } from "./components/PreviewView";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { ErrorPanel, ProgressPanel, ResultPanel } from "./components/StatusPanels";
 import { getBackend, toRadialError, type Backend } from "./lib/backend";
-import { FORMAT_LABEL, newJobId } from "./lib/format";
+import { FORMAT_LABEL, newJobId, PREVIEWABLE } from "./lib/format";
 import type { Edits, Format, HistoryEntry, ImportResult, OperationId, Settings } from "./lib/types";
 import { NO_EDITS } from "./lib/types";
 import { RadialMenu, type RadialItem } from "./radial/RadialMenu";
@@ -437,15 +437,18 @@ export function App() {
         </button>
       </div>
     );
-  } else if (state.view === "result" && outcome && outcome.format === "txt") {
+  } else if (state.view === "result" && outcome && !PREVIEWABLE(outcome.format)) {
+    const text = outcome.format === "txt";
     stage = (
       <div className="rejected">
         <div className="rejected__orb rejected__orb--ok" aria-hidden="true">
-          <FormatIcon format="txt" />
+          <FormatIcon format={outcome.format} />
         </div>
-        <h1 className="empty__title">Text extracted</h1>
+        <h1 className="empty__title">{text ? "Text extracted" : "Document saved"}</h1>
         <p className="empty__sub">
-          Plain text has no layout to preview. Open the file to read it, or show it in its folder.
+          {text
+            ? "Plain text has no layout to preview. Open the file to read it, or show it in its folder."
+            : "RADIAL doesn't preview Word documents. Open the copy to check it, or show it in its folder."}
         </p>
         <button
           type="button"
@@ -453,7 +456,7 @@ export function App() {
           onClick={() => report(backend?.openPath(outcome.outputPath), "Opened in the default app")}
         >
           <IconOpen />
-          Open text file
+          {text ? "Open text file" : "Open document"}
         </button>
       </div>
     );

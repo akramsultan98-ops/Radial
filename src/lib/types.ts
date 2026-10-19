@@ -1,7 +1,7 @@
 // Types mirroring the Rust core (`crates/radial-core`). Field names follow the
 // serde `camelCase` renames used there.
 
-export type Format = "png" | "jpeg" | "webp" | "bmp" | "tiff" | "gif" | "pdf" | "txt";
+export type Format = "png" | "jpeg" | "webp" | "bmp" | "tiff" | "gif" | "pdf" | "txt" | "docx";
 
 export type ErrorKind =
   | "unsupported_format"

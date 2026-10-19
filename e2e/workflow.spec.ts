@@ -12,7 +12,7 @@ test.describe("core workflow", () => {
     await ready(page);
     await expect(page.getByRole("heading", { name: "Drop a file to begin" })).toBeVisible();
     const formats = page.getByRole("list", { name: "Formats RADIAL can open" });
-    await expect(formats.getByRole("listitem")).toHaveText(["PNG", "JPEG", "WebP", "BMP", "TIFF", "GIF", "PDF"]);
+    await expect(formats.getByRole("listitem")).toHaveText(["PNG", "JPEG", "WebP", "BMP", "TIFF", "GIF", "PDF", "Text", "Word"]);
     await expect(page.getByText("Local processing — files never leave this computer")).toBeVisible();
     await shot(page, "01-empty");
   });

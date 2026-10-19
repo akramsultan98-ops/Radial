@@ -1,26 +1,30 @@
 # RADIAL
 
-**Local-first file conversion with a radial format selector.**
+**A local-first file toolkit built around a radial menu.**
 
-RADIAL is a desktop app for Windows 10/11 (macOS-ready architecture). Drop an image, drag it onto a
-format in the ring around it, adjust only the options that matter, and save. Every conversion runs
-on your computer — no uploads, accounts or telemetry.
+RADIAL is a desktop app for Windows 10/11 (macOS-ready architecture). Drop an image, PDF, Word
+document or text file; the ring around it offers the actions that genuinely work for that file —
+convert, compress, crop, annotate, redact, edit properties — and you save a verified copy. Everything
+runs on your computer — no uploads, accounts or telemetry.
 
 ![RADIAL choosing an output format](qa/screenshots/native/01-launch-with-file.png)
 
-## What it does today (v0.1)
+## What it does today (v0.2)
 
 | | |
 | --- | --- |
-| **Formats** | PNG, JPEG, WebP, BMP, TIFF and GIF — any of them to any other (30 conversions). See [docs/SUPPORTED_FORMATS.md](docs/SUPPORTED_FORMATS.md). |
+| **Actions** | Convert, Compress, Edit, Crop, Annotate, Redact, Background and Metadata. Each file type gets only the actions that work for it; the rest are shown disabled with the reason. Full matrix: [docs/SUPPORTED_FORMATS.md](docs/SUPPORTED_FORMATS.md). |
+| **Images** | PNG, JPEG, WebP, BMP, TIFF and GIF — any of them to any other (30 conversions) or to PDF. Compression that never saves a larger file, pixel-level redaction with metadata removal, annotations drawn into the pixels, lossless EXIF/PNG metadata editing. |
+| **PDF** | Page → PNG/JPEG, text extraction, compression, page crop, vector annotations, genuine redaction (redacted pages are rebuilt as images; nothing under a box survives), document properties. Powered by PDFium, bundled. |
+| **Documents** | Word (.docx) → text and Word property editing; plain text → PDF. Word ↔ PDF layout conversion is not offered. |
 | **Choose a format three ways** | drag the file onto a segment · click a segment · keyboard (arrows, `Enter`, `1`–`9`). A conventional list in the side panel offers the same choices. |
 | **Options** | JPEG/WebP quality, lossless WebP, background colour for transparency, resize with aspect lock, rotate, crop, brightness, contrast. Only options the target supports are shown. |
 | **Preview** | Before/after comparison, fit, zoom, 100 % view. Edits preview through the same pipeline used for export. |
 | **Safety** | Content-based type detection, never overwrites (originals or existing files), atomic writes with verification, cancellation that never leaves partial files. |
 | **History** | Recent conversions with open / show in folder / retry. Metadata only, stored locally; can be turned off. |
 
-Document (LibreOffice) and audio/video (FFmpeg) conversion are planned — see [ROADMAP.md](ROADMAP.md).
-RADIAL never lists a conversion it cannot perform.
+Audio/video (FFmpeg) and Office layout conversion (LibreOffice) are planned — see [ROADMAP.md](ROADMAP.md).
+RADIAL never offers an action it cannot perform.
 
 ## Install
 
@@ -39,6 +43,7 @@ Prerequisites: Node.js 22+, Rust 1.88+ (stable), and the
 
 ```sh
 npm install
+npm run pdfium             # fetch the pinned PDFium build (needed for PDF features and tests)
 npm run tauri dev          # run the desktop app with hot reload
 npm run tauri build        # release build + Windows installers (on Windows)
 ```

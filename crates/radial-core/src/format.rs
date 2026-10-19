@@ -16,8 +16,10 @@ pub enum Format {
     Tiff,
     Gif,
     Pdf,
-    /// Plain UTF-8 text (output of text extraction).
+    /// Plain UTF-8 text.
     Txt,
+    /// Word document (Office Open XML).
+    Docx,
 }
 
 impl Format {
@@ -31,7 +33,7 @@ impl Format {
         Format::Gif,
     ];
 
-    pub const ALL: [Format; 8] = [
+    pub const ALL: [Format; 9] = [
         Format::Png,
         Format::Jpeg,
         Format::Webp,
@@ -40,6 +42,7 @@ impl Format {
         Format::Gif,
         Format::Pdf,
         Format::Txt,
+        Format::Docx,
     ];
 
     pub fn is_image(self) -> bool {
@@ -56,6 +59,7 @@ impl Format {
             Format::Gif => "gif",
             Format::Pdf => "pdf",
             Format::Txt => "txt",
+            Format::Docx => "docx",
         }
     }
 
@@ -69,6 +73,7 @@ impl Format {
             Format::Gif => "GIF",
             Format::Pdf => "PDF",
             Format::Txt => "Text",
+            Format::Docx => "Word",
         }
     }
 
@@ -83,6 +88,7 @@ impl Format {
             Format::Gif => "gif",
             Format::Pdf => "pdf",
             Format::Txt => "txt",
+            Format::Docx => "docx",
         }
     }
 
@@ -97,6 +103,7 @@ impl Format {
             Format::Gif => &["gif"],
             Format::Pdf => &["pdf"],
             Format::Txt => &["txt", "text"],
+            Format::Docx => &["docx"],
         }
     }
 
@@ -110,6 +117,9 @@ impl Format {
             Format::Gif => "image/gif",
             Format::Pdf => "application/pdf",
             Format::Txt => "text/plain",
+            Format::Docx => {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
         }
     }
 
@@ -151,7 +161,7 @@ impl Format {
             Format::Bmp => image::ImageFormat::Bmp,
             Format::Tiff => image::ImageFormat::Tiff,
             Format::Gif => image::ImageFormat::Gif,
-            Format::Pdf | Format::Txt => return None,
+            Format::Pdf | Format::Txt | Format::Docx => return None,
         })
     }
 

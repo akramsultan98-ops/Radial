@@ -34,7 +34,18 @@ export function FileDetails({ item }: { item: ImportResult }) {
       <p className="card__path truncate mono selectable" title={dirName(item.path)}>
         {shortenPath(dirName(item.path), 46)}
       </p>
-      {item.format === "pdf" ? (
+      {item.format === "txt" || item.format === "docx" ? (
+        <dl className="facts">
+          <div>
+            <dt>Size</dt>
+            <dd>{formatBytes(item.size)}</dd>
+          </div>
+          <div>
+            <dt>Type</dt>
+            <dd>{item.format === "docx" ? "Word document" : "Plain text"}</dd>
+          </div>
+        </dl>
+      ) : item.format === "pdf" ? (
         <dl className="facts">
           <div>
             <dt>Size</dt>

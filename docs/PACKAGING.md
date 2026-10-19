@@ -7,6 +7,7 @@ On Windows 10/11 with the [Tauri prerequisites](https://v2.tauri.app/start/prere
 
 ```powershell
 npm ci
+npm run pdfium        # downloads the pinned PDFium build (SHA-256 verified) into src-tauri/resources/pdfium
 npm run tauri build
 ```
 
@@ -14,9 +15,9 @@ Outputs (configured in `src-tauri/tauri.conf.json` → `bundle.targets`):
 
 | File | Location |
 | --- | --- |
-| MSI (WiX) | `target/release/bundle/msi/RADIAL_0.1.0_x64_en-US.msi` |
-| NSIS setup | `target/release/bundle/nsis/RADIAL_0.1.0_x64-setup.exe` |
-| Portable exe | `target/release/radial.exe` (needs WebView2 present) |
+| MSI (WiX) | `target/release/bundle/msi/RADIAL_0.2.0_x64_en-US.msi` |
+| NSIS setup | `target/release/bundle/nsis/RADIAL_0.2.0_x64-setup.exe` |
+| Portable exe | `target/release/radial.exe` (needs WebView2 and the `pdfium/` folder beside it) |
 
 The NSIS installer installs per-user (no admin rights). On Windows 10 machines without WebView2
 it downloads Microsoft's bootstrapper during install.
@@ -44,15 +45,24 @@ reputation builds. To sign:
 
 See the [Tauri Windows signing guide](https://v2.tauri.app/distribute/sign/windows/).
 
-## Optional engines
+## Bundled files
 
-v0.1 has no external dependencies; the image engine (including libwebp) is compiled into the
-executable. Future FFmpeg/LibreOffice support will detect user-installed engines at runtime and
-will not be bundled by default (see `ROADMAP.md`).
+The installers contain, next to `radial.exe`:
+
+- `pdfium/pdfium.dll` — PDFium `chromium/7881`, with `pdfium/LICENSE` and `pdfium/licenses/*`
+  (configured as `bundle.resources` in `tauri.conf.json`; CI fails if they are missing);
+- `notices/` — `THIRD-PARTY-NOTICES.md` (every Rust crate and its licence text, regenerated with
+  `npm run notices` after dependency changes), the DejaVu and Inter font licences.
+
+The image engine, libwebp, lopdf and the DejaVu font are compiled into the executable. Future
+FFmpeg/LibreOffice support will detect user-installed engines at runtime and will not be bundled
+by default (see `ROADMAP.md`).
 
 ## Verifying a build
 
 1. Install, launch from the Start menu.
 2. Drop a PNG with transparency; convert to JPEG and WebP; check the outputs open in Photos.
-3. Try a file name with non-Latin characters in a folder with spaces.
-4. Uninstall; confirm `%APPDATA%\app.radial.desktop` (history/settings) is the only leftover.
+3. Drop a PDF: check pages render, export a page to PNG, extract text, redact an area and a
+   word, and open the redacted copy in a PDF reader — search for the word and try selecting text.
+4. Try a file name with non-Latin characters in a folder with spaces.
+5. Uninstall; confirm `%APPDATA%\app.radial.desktop` (history/settings) is the only leftover.

@@ -4,6 +4,7 @@
 //! with real files and no GUI. See `docs/ARCHITECTURE.md`.
 
 pub mod detect;
+pub mod doc;
 pub mod draw;
 pub mod engine;
 pub mod error;

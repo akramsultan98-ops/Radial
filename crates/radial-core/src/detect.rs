@@ -230,6 +230,24 @@ pub fn inspect(path: &Path) -> Result<FileInfo> {
         .and_then(|e| e.to_str())
         .and_then(Format::from_extension);
 
+    // Formats identified beyond magic bytes: Word documents are ZIP packages
+    // with a document part; plain text has no signature, so it is accepted
+    // only with a text extension and content that decodes as text.
+    match info.recognized {
+        Some(Recognized::Known { id: "zip", .. }) if crate::doc::docx::probe(path) => {
+            info.recognized = Some(Recognized::Convertible(Format::Docx));
+        }
+        None if ext_format == Some(Format::Txt) => match crate::doc::text::read(path) {
+            Ok(_) => info.recognized = Some(Recognized::Convertible(Format::Txt)),
+            Err(e) if e.kind == ErrorKind::TooLarge => {
+                info.problem = Some(e);
+                return Ok(info);
+            }
+            Err(_) => {}
+        },
+        _ => {}
+    }
+
     match info.recognized {
         None => {
             info.problem = Some(RadialError::new(
@@ -246,6 +264,10 @@ pub fn inspect(path: &Path) -> Result<FileInfo> {
         }
         Some(Recognized::Convertible(format)) => {
             info.extension_mismatch = ext_format.is_some_and(|e| e != format);
+            if matches!(format, Format::Txt | Format::Docx) {
+                info.format = Some(format);
+                return Ok(info);
+            }
             if format == Format::Pdf {
                 match crate::pdf::inspect(path) {
                     Ok(p) => {

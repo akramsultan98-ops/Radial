@@ -1,6 +1,7 @@
-"""Regenerate the PDF test fixtures (requires reportlab, pypdf, Pillow).
+"""Regenerate the PDF, Word and text test fixtures
+(requires reportlab, pypdf, python-docx, Pillow).
 
-    python3 make_pdfs.py
+    python3 make_fixtures.py
 
 Output is deterministic (reportlab invariant mode) so diffs stay meaningful.
 """
@@ -69,6 +70,22 @@ def report() -> None:
         out.write(f)
 
 
+def bookmarked() -> None:
+    # A bookmark title holds text that is not on any page.
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4, invariant=1)
+    c.drawString(72, 700, "Contract overview")
+    c.showPage()
+    c.drawString(72, 700, "Payment to account VAULT-7731")
+    c.save()
+    buf.seek(0)
+    out = PdfWriter(clone_from=PdfReader(buf))
+    out.add_outline_item("Notes for Project Nightjar", 0)
+    out.add_outline_item("VAULT-7731 details", 1)
+    with open(HERE / "bookmarked.pdf", "wb") as f:
+        out.write(f)
+
+
 def encrypted() -> None:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4, invariant=1)
@@ -91,6 +108,42 @@ def encrypted() -> None:
         out.write(f)
 
 
+def memo() -> None:
+    import datetime
+
+    import docx
+
+    d = docx.Document()
+    d.add_heading("Client memo", level=1)
+    d.add_paragraph("Account: ACME Corporation\tTier 1")
+    p = d.add_paragraph("Renewal due ")
+    p.add_run("31 March").bold = True
+    p.add_run(" — budget & scope agreed.")
+    t = d.add_table(rows=1, cols=2)
+    t.rows[0].cells[0].text = "Contact"
+    t.rows[0].cells[1].text = "Jane Doe"
+    cp = d.core_properties
+    cp.title = "Client memo"
+    cp.author = "Old author"
+    cp.last_modified_by = "Jane Doe"
+    cp.subject = "Renewal"
+    cp.keywords = "acme, renewal"
+    cp.created = datetime.datetime(2024, 1, 31, 14, 30)
+    cp.modified = datetime.datetime(2024, 2, 1, 9, 0)
+    cp.revision = 3
+    d.save(HERE / "memo.docx")
+
+
+def texts() -> None:
+    lines = [f"Line {i:03d}: the quick brown fox jumps over the lazy dog." for i in range(1, 121)]
+    lines.insert(5, "A very long line " + "that keeps going " * 20 + "END")
+    (HERE / "notes.txt").write_text("\n".join(lines) + "\n\x0cAfter the page break\n", encoding="utf-8")
+    (HERE / "greek.txt").write_text("Καλημέρα κόσμε\nΠρόγραμμα συνάντησης\n", encoding="utf-8")
+
+
 if __name__ == "__main__":
     report()
+    bookmarked()
     encrypted()
+    memo()
+    texts()

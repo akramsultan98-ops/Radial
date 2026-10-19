@@ -83,3 +83,14 @@ export async function openPdf(page: Page, over: Record<string, unknown> = {}) {
   await page.getByRole("button", { name: "Choose file" }).click();
   await expect(page.getByRole("radiogroup", { name: "Actions", exact: true })).toBeVisible();
 }
+
+/** Open the mock's Word document. */
+export async function openDocx(page: Page) {
+  await ready(page);
+  await page.evaluate(() => {
+    const m = window.__radialMock;
+    if (m) m.nextPick = [{ type: "file", ...m.sampleDocx() }];
+  });
+  await page.getByRole("button", { name: "Choose file" }).click();
+  await expect(page.getByRole("radiogroup", { name: "Actions", exact: true })).toBeVisible();
+}

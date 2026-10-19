@@ -63,8 +63,27 @@ temp-file → verify → no-clobber rename contract.
 | `image` 0.25 | decoding/encoding PNG, JPEG, BMP, TIFF, GIF, WebP decode | MIT / Apache-2.0 |
 | `webp` 0.3 / libwebp | lossy and lossless WebP encoding | MIT / Apache-2.0; libwebp BSD-3-Clause |
 | `tempfile` | atomic outputs | MIT / Apache-2.0 |
+| PDFium (`chromium/7881`, bblanchon/pdfium-binaries) | PDF rendering, text, page editing — shipped as `pdfium.dll` with its licence files in `pdfium/` | BSD-3-Clause (+ bundled third-party licences: FreeType, ICU, LCMS, libjpeg-turbo, OpenJPEG, libpng, libtiff, zlib, abseil, …) |
+| `pdfium-render` 0.9 | Rust bindings for PDFium | MIT OR Apache-2.0 |
+| `lopdf` 0.45 | PDF structure edits | MIT |
+| `oxipng` 10 | lossless PNG optimisation | MIT |
+| `imageproc` 0.27, `ab_glyph` 0.2 | drawing annotations and text | MIT; Apache-2.0 |
+| DejaVu Sans (compiled in) | annotation and PDF text font | Bitstream Vera / DejaVu licence (permissive) |
+| `kamadak-exif` 0.6 | EXIF reading/rewriting | BSD-2-Clause |
+| `zip` 9, `quick-xml` 0.42, `flate2` | Word packages, PNG-predicted image streams | MIT; MIT; MIT OR Apache-2.0 |
 | React 19 | interface | MIT |
 | Inter (via `@fontsource-variable/inter`) | bundled UI font, no network fetch | SIL OFL 1.1 |
+
+Every crate added in v0.2 is under a permissive licence (MIT, Apache-2.0, BSD, Zlib). The only
+copyleft licences in the tree are MPL-2.0 (`cssparser`, `selectors`, `dtoa-short`,
+`option-ext`), which come with Tauri, were present in v0.1, and are used unmodified.
+`THIRD-PARTY-NOTICES.md` lists the licence text for every Rust crate; the installer ships it,
+the DejaVu licence and PDFium's licence files.
+
+**PDF safety.** PDFs are parsed by PDFium (the engine in Chrome) without JavaScript or XFA
+support compiled in, and by lopdf. Password-protected PDFs are refused; files with owner
+restrictions are view-only. Redaction never draws boxes over recoverable content: affected pages
+are rebuilt as images and the result is verified (see `docs/ARCHITECTURE.md`).
 
 `npm audit` reported 0 vulnerabilities at the time of writing.
 

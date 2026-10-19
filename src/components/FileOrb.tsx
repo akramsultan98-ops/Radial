@@ -1,8 +1,8 @@
 import type { Backend } from "../lib/backend";
-import { FORMAT_LABEL, STAGES } from "../lib/format";
+import { FORMAT_LABEL, PREVIEWABLE, STAGES } from "../lib/format";
 import type { Edits, FileInfo, JobStage } from "../lib/types";
 import { usePreview } from "../state/usePreview";
-import { IconArrowRight } from "./Icons";
+import { FormatIcon, IconArrowRight } from "./Icons";
 
 interface Props {
   backend: Backend | null;
@@ -15,7 +15,8 @@ interface Props {
 
 /** The selected file, shown inside the radial ring. */
 export function FileOrb({ backend, file, edits, route, stage }: Props) {
-  const preview = usePreview(backend, file.path, edits, 320);
+  const canPreview = PREVIEWABLE(file.format);
+  const preview = usePreview(canPreview ? backend : null, file.path, edits, 320);
   const from = file.format ? FORMAT_LABEL[file.format] : "?";
   const done = stage ? STAGES.indexOf(stage) : 0;
   const circ = 2 * Math.PI * 48;
@@ -26,6 +27,7 @@ export function FileOrb({ backend, file, edits, route, stage }: Props) {
         className={`orb__thumb${file.hasAlpha ? "" : " orb__thumb--opaque"}${preview.loading && !preview.url ? " orb__thumb--loading" : ""}`}
       >
         {preview.url && <img src={preview.url} alt="" draggable={false} />}
+        {!canPreview && file.format && <FormatIcon format={file.format} className="orb__doc-icon" />}
       </div>
       <div className="orb__name truncate" title={file.name}>
         {file.name}
@@ -39,7 +41,9 @@ export function FileOrb({ backend, file, edits, route, stage }: Props) {
       ) : (
         <div className="orb__meta">
           <span className="badge">{from}</span>
-          {file.format === "pdf"
+          {file.format === "txt" || file.format === "docx"
+            ? null
+            : file.format === "pdf"
             ? `${file.pages ?? 1} page${file.pages === 1 ? "" : "s"}`
             : file.width && file.height
               ? `${file.width} × ${file.height}`

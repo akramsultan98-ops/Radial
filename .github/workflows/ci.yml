@@ -76,6 +76,33 @@ jobs:
         run: |
           if (-not (Test-Path target/release/pdfium/pdfium.dll)) { throw "pdfium.dll missing from the bundle resources" }
           if (-not (Test-Path target/release/pdfium/LICENSE)) { throw "PDFium licence missing" }
+          if (-not (Test-Path target/release/notices/THIRD-PARTY-NOTICES.md)) { throw "Third-party notices missing" }
+          if (-not (Test-Path target/release/notices/DejaVu-LICENSE.txt)) { throw "DejaVu licence missing" }
+      - name: Check installer contents
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem target/release/bundle/msi/*.msi | Select-Object -First 1
+          $out = Join-Path $env:RUNNER_TEMP "msi"
+          Start-Process msiexec -ArgumentList "/a `"$($msi.FullName)`" /qn TARGETDIR=`"$out`"" -Wait
+          $files = Get-ChildItem -Recurse $out | ForEach-Object { $_.Name }
+          foreach ($f in "radial.exe", "pdfium.dll", "THIRD-PARTY-NOTICES.md", "DejaVu-LICENSE.txt", "LICENSE") {
+            if ($files -notcontains $f) { throw "MSI is missing $f" }
+          }
+          $nsis = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "nsis-install"
+          Start-Process $nsis.FullName -ArgumentList "/S", "/D=$dir" -Wait
+          foreach ($f in "radial.exe", "pdfium\pdfium.dll", "notices\THIRD-PARTY-NOTICES.md") {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "NSIS install is missing $f" }
+          }
+          Write-Host "MSI and NSIS installers contain the app, PDFium and the notices."
+      - name: Self-test the installed app (loads bundled PDFium, runs real conversions)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "nsis-install"
+          $report = Join-Path $env:RUNNER_TEMP "self-test.txt"
+          $p = Start-Process (Join-Path $dir "radial.exe") -ArgumentList "--self-test", "`"$report`"" -Wait -PassThru
+          Get-Content $report
+          if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
           name: radial-windows-installers

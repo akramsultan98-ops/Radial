@@ -3,10 +3,12 @@ resolver = "2"
 members = ["crates/radial-core", "src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 repository = "https://github.com/akramsultan98-ops/Radial"
 rust-version = "1.88"
+# Application crates; never published to crates.io.
+publish = false
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -14,13 +14,26 @@ Priorities are ordered. A format is only offered once its conversion is implemen
 - Local history with open / reveal / retry; settings
 - Windows installers (unsigned) from CI
 
+## ✅ v0.2 — Interactive file toolkit
+
+- Operation ring (Convert, Compress, Edit, Crop, Annotate, Redact, Background, Metadata) driven
+  by a typed operation registry; unavailable actions show why
+- Images: compression that never saves a larger file, pixel redaction with metadata removal,
+  annotations, background/border, lossless EXIF/PNG metadata editing
+- PDF (PDFium, bundled): page export, text extraction, compression, crop, annotations, genuine
+  redaction (page rebuilt as an image, verified), document properties
+- Documents: DOCX → text, DOCX properties, TXT → PDF
+
 ## Phase 1.1 — Polish and distribution
 
 - Code-signing for Windows installers (needs a certificate — see `docs/PACKAGING.md`)
 - File association / "Open with RADIAL" registration in the installer (launch-argument
   handling already works)
 - Single-instance behaviour: a second launch hands its file to the running window
-- Metadata option: keep or strip EXIF (currently always stripped, orientation applied)
+- Metadata option on Convert: keep or strip EXIF (currently always stripped, orientation applied)
+- PDF: keep searchable text on redacted pages (selective glyph removal), page reorder/delete,
+  merge/split, OCR for scanned PDFs
+- Text annotations with complex-script shaping (Arabic, Hebrew)
 - ICC profile embedding for WebP and TIFF output; optional conversion to sRGB
 - Remember window size/position
 
@@ -41,7 +54,8 @@ Priorities are ordered. A format is only offered once its conversion is implemen
 ## Phase 4 — Documents (LibreOffice)
 
 - Probe for an installed LibreOffice (`soffice --headless`); RADIAL will not bundle it
-- DOCX/ODT/RTF → PDF, DOCX ↔ ODT, HTML/TXT → PDF, XLSX/ODS → PDF/CSV
+- DOCX/ODT/RTF → PDF, DOCX ↔ ODT, HTML → PDF, XLSX/ODS → PDF/CSV
+  (DOCX → text and TXT → PDF already ship in v0.2 without LibreOffice)
 - Isolated user profile per run (`-env:UserInstallation`), timeouts, clear fidelity caveats
 
 ## Later

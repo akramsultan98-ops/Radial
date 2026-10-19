@@ -17,6 +17,8 @@ pub enum EngineId {
     Pdfium,
     /// lopdf, compiled into RADIAL: writes images into new PDFs.
     PdfWriter,
+    /// Built-in reader for Word (.docx) packages.
+    Docx,
 }
 
 impl EngineId {
@@ -25,6 +27,7 @@ impl EngineId {
             EngineId::NativeImage => "Built-in image engine",
             EngineId::Pdfium => "PDF engine (PDFium)",
             EngineId::PdfWriter => "Built-in PDF writer",
+            EngineId::Docx => "Built-in Word reader",
         }
     }
 
@@ -32,7 +35,7 @@ impl EngineId {
     /// (PDFium) report availability from a probe.
     pub fn status(self) -> EngineStatus {
         match self {
-            EngineId::NativeImage | EngineId::PdfWriter => EngineStatus::Available,
+            EngineId::NativeImage | EngineId::PdfWriter | EngineId::Docx => EngineStatus::Available,
             EngineId::Pdfium => match crate::pdf::missing_reason() {
                 None => EngineStatus::Available,
                 Some(hint) => EngineStatus::Missing { hint },
@@ -148,6 +151,26 @@ impl Registry {
         for to in [Format::Png, Format::Jpeg, Format::Txt] {
             caps.push(pdf_capability(to, pdfium.clone()));
         }
+        caps.push(document_capability(
+            Format::Txt,
+            Format::Pdf,
+            EngineId::Pdfium,
+            pdfium,
+            vec![
+                "Typeset on A4 in a single font and size; Markdown or other markup is not interpreted.",
+                "Long lines are wrapped; tabs become spaces.",
+            ],
+        ));
+        caps.push(document_capability(
+            Format::Docx,
+            Format::Txt,
+            EngineId::Docx,
+            EngineStatus::Available,
+            vec![
+                "Keeps the words and paragraphs of the main text; formatting, images, headers, footers, footnotes and comments are left out.",
+                "Tracked deletions are left out; tracked insertions are included.",
+            ],
+        ));
         Self { caps }
     }
 
@@ -229,7 +252,7 @@ fn image_capability(from: Format, to: Format) -> Capability {
         Format::Tiff => limitations
             .push("LZW-compressed (lossless). Colour profiles are not stored in TIFF output."),
         Format::Png => {}
-        Format::Pdf | Format::Txt => {}
+        Format::Pdf | Format::Txt | Format::Docx => {}
     }
 
     let engine = EngineId::NativeImage;
@@ -270,6 +293,28 @@ fn image_to_pdf(from: Format) -> Capability {
         engine_label: engine.label(),
         engine_status: EngineStatus::Available,
         available: true,
+        options: Vec::new(),
+        limitations,
+        progress: ProgressKind::Stages,
+        cancellation: CancelKind::BetweenStages,
+    }
+}
+
+fn document_capability(
+    from: Format,
+    to: Format,
+    engine: EngineId,
+    status: EngineStatus,
+    limitations: Vec<&'static str>,
+) -> Capability {
+    Capability {
+        from,
+        to,
+        to_label: to.label(),
+        engine,
+        engine_label: engine.label(),
+        available: status == EngineStatus::Available,
+        engine_status: status,
         options: Vec::new(),
         limitations,
         progress: ProgressKind::Stages,

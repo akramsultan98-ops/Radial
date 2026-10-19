@@ -553,3 +553,27 @@ fn refuses_unavailable_pdf_operations() {
     );
     assert_eq!(run(&r).unwrap_err().kind, ErrorKind::UnsupportedConversion);
 }
+
+#[test]
+fn redaction_refuses_text_it_cannot_remove() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = fixture("bookmarked.pdf");
+    // Only in a bookmark title: explained, nothing written.
+    let mut r = req(&src, OperationId::Redact, dir.path(), "a");
+    r.pdf.terms = vec!["nightjar".into()];
+    let e = run(&r).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::UnsupportedConversion);
+    assert!(e.message.contains("bookmark"), "{}", e.message);
+    // On a page *and* in a bookmark: the page is redacted, then verification
+    // finds the bookmark copy and nothing is saved.
+    let mut r = req(&src, OperationId::Redact, dir.path(), "b");
+    r.pdf.terms = vec!["VAULT-7731".into()];
+    let e = run(&r).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::EngineFailed);
+    assert!(
+        e.message.contains("outside the page content"),
+        "{}",
+        e.message
+    );
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}

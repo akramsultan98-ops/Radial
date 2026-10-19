@@ -37,7 +37,7 @@ fn write_sample(dir: &Path, name: &str, format: Format, img: &DynamicImage) -> P
         Format::Bmp => image::ImageFormat::Bmp,
         Format::Tiff => image::ImageFormat::Tiff,
         Format::Gif => image::ImageFormat::Gif,
-        Format::Pdf | Format::Txt => unreachable!("not an image"),
+        Format::Pdf | Format::Txt | Format::Docx => unreachable!("not an image"),
     };
     img.save_with_format(&path, fmt).unwrap();
     path

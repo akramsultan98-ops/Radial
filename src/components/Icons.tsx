@@ -232,6 +232,15 @@ export function FormatIcon({ format, ...p }: P & { format: Format }) {
           <path d="M8.5 12.5h7M8.5 15.5h7M8.5 18h4" strokeOpacity={0.6} />
         </Svg>
       );
+    case "docx":
+      // Page with a "W".
+      return (
+        <Svg {...p}>
+          <path d="M6 3.5h8l4.5 4.5v12.5H6z" />
+          <path d="M14 3.5V8h4.5" />
+          <path d="M8.5 11.5l1.3 5 1.7-4 1.7 4 1.3-5" />
+        </Svg>
+      );
     case "txt":
       // Lines of text.
       return (
