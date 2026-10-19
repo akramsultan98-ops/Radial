@@ -133,11 +133,16 @@ fn draw_shape<'a>(
     match s.kind {
         ShapeKind::Rect | ShapeKind::Ellipse => {
             let rect = PdfRect::new_from_values(ay.min(by), ax.min(bx), ay.max(by), ax.max(bx));
-            let fill = s.filled.then_some(c);
-            if s.kind == ShapeKind::Rect {
-                objects.create_path_object_rect(rect, Some(c), Some(stroke), fill)
+            // Filled shapes have no outline, as in the image renderer.
+            let (line, fill) = if s.filled {
+                (None, Some(c))
             } else {
-                objects.create_path_object_ellipse(rect, Some(c), Some(stroke), fill)
+                (Some(c), None)
+            };
+            if s.kind == ShapeKind::Rect {
+                objects.create_path_object_rect(rect, line, Some(stroke), fill)
+            } else {
+                objects.create_path_object_ellipse(rect, line, Some(stroke), fill)
             }
             .map_err(err)?;
         }

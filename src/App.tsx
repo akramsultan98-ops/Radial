@@ -17,7 +17,7 @@ import {
   IconRotateRight,
   OperationIcon,
 } from "./components/Icons";
-import { DEFAULT_TOOL, type AnnotateTool } from "./components/OperationPanels";
+import { DEFAULT_TOOL, PageNav, type AnnotateTool } from "./components/OperationPanels";
 import { OperationList } from "./components/OperationList";
 import { blockedReason, OperationSettings, runLabel } from "./components/OperationSettings";
 import { editedSize } from "./components/OptionsPanel";
@@ -77,6 +77,9 @@ export function App() {
   const busy = state.phase === "converting";
   const outcome = state.outcome;
   const outFormat = outputFormat(state);
+  const isPdf = file?.format === "pdf";
+  const pages = file?.pages ?? 1;
+  const page = isPdf ? state.pdf.page : 0;
 
   // ---- Boot ----
   useEffect(() => {
@@ -227,6 +230,7 @@ export function App() {
           options: state.options,
           metadata: state.metadata,
           maxDimension: state.maxDimension,
+          pdf: state.pdf,
         });
         dispatch({ type: "convert_succeeded", jobId, outcome: result });
         setCompare("output");
@@ -240,7 +244,18 @@ export function App() {
         refreshHistory();
       }
     },
-    [backend, file, state.operation, state.output, state.target, state.options, state.metadata, state.maxDimension, refreshHistory],
+    [
+      backend,
+      file,
+      state.operation,
+      state.output,
+      state.target,
+      state.options,
+      state.metadata,
+      state.maxDimension,
+      state.pdf,
+      refreshHistory,
+    ],
   );
 
   const cancel = useCallback(() => {
@@ -390,6 +405,19 @@ export function App() {
     </>
   );
 
+  // PDF pages are shown at 2 px per point (144 DPI) so zooming stays sharp.
+  const pageSize = (p: number) => {
+    const s = file?.pageSizes[p];
+    return s ? { width: Math.round(s[0] * 2), height: Math.round(s[1] * 2) } : null;
+  };
+  const pageCaption = (p: number, size = file?.pageSizes[p]) =>
+    size
+      ? `Page ${p + 1} of ${pages} · ${Math.round((size[0] / 72) * 25.4)} × ${Math.round((size[1] / 72) * 25.4)} mm`
+      : undefined;
+  const pageNav = isPdf ? (
+    <PageNav page={page} pages={pages} onPage={(p) => dispatch({ type: "page_changed", page: p })} />
+  ) : null;
+
   let stage: ReactNode;
   if (state.phase === "empty") {
     stage = <EmptyState sources={sources} dragOver={dragOver} onPick={pickFiles} />;
@@ -409,18 +437,50 @@ export function App() {
         </button>
       </div>
     );
+  } else if (state.view === "result" && outcome && outcome.format === "txt") {
+    stage = (
+      <div className="rejected">
+        <div className="rejected__orb rejected__orb--ok" aria-hidden="true">
+          <FormatIcon format="txt" />
+        </div>
+        <h1 className="empty__title">Text extracted</h1>
+        <p className="empty__sub">
+          Plain text has no layout to preview. Open the file to read it, or show it in its folder.
+        </p>
+        <button
+          type="button"
+          className="btn btn--primary btn--lg"
+          onClick={() => report(backend?.openPath(outcome.outputPath), "Opened in the default app")}
+        >
+          <IconOpen />
+          Open text file
+        </button>
+      </div>
+    );
   } else if (state.view === "result" && outcome) {
     const showSource = compare === "source";
+    // PDF results: page through them like the source. A crop changes the
+    // visible size of the cropped pages.
+    const pdfResult = outcome.format === "pdf";
+    const crop = state.operation === "crop" ? state.options.edits.crop : null;
+    const cropped = pdfResult && crop && (state.pdf.allPages || state.pdf.page === page);
+    const base = pageSize(page);
+    const resultNatural =
+      pdfResult && base
+        ? cropped && crop
+          ? { width: Math.round(base.width * crop.width), height: Math.round(base.height * crop.height) }
+          : base
+        : { width: outcome.width ?? file.width ?? 1, height: outcome.height ?? file.height ?? 1 };
+    const sourceNatural = (isPdf && pageSize(page)) || { width: file.width ?? 1, height: file.height ?? 1 };
+    const pagedView = showSource ? isPdf : pdfResult;
     stage = (
       <PreviewView
         backend={backend}
         path={showSource ? file.path : outcome.outputPath}
         edits={NO_EDITS}
-        natural={
-          showSource
-            ? { width: file.width ?? 1, height: file.height ?? 1 }
-            : { width: outcome.width ?? file.width ?? 1, height: outcome.height ?? file.height ?? 1 }
-        }
+        page={pagedView ? page : 0}
+        caption={pagedView ? `Page ${page + 1} of ${pages}` : undefined}
+        natural={showSource ? sourceNatural : resultNatural}
         label={showSource ? `Original · ${sourceLabel}` : `Result · ${FORMAT_LABEL[outcome.format]}`}
         toolbarStart={
           <div className="segmented" role="radiogroup" aria-label="Compare">
@@ -432,27 +492,37 @@ export function App() {
             </button>
           </div>
         }
-        toolbarEnd={<IconCompare className="preview__deco" />}
+        toolbarEnd={
+          <>
+            {(showSource ? isPdf : pdfResult) && pageNav}
+            <IconCompare className="preview__deco" />
+          </>
+        }
       />
     );
   } else if (state.view === "edit" && op) {
     const e = state.options.edits;
     const o = state.options;
-    const natural = { width: file.width ?? 1, height: file.height ?? 1 };
+    const natural = (isPdf && pageSize(page)) || { width: file.width ?? 1, height: file.height ?? 1 };
+    const caption = isPdf ? pageCaption(page) : undefined;
     if (op.id === "annotate") {
       stage = (
         <PreviewView
           backend={backend}
           path={file.path}
           edits={NO_EDITS}
+          page={page}
+          caption={caption}
           natural={natural}
           label="Annotate"
           toolbarStart={backToOperations}
+          toolbarEnd={pageNav}
           overlay={(box) => (
             <AnnotationLayer
               box={box}
-              shapes={o.annotations}
+              shapes={o.annotations.filter((s) => (s.page ?? 0) === page)}
               tool={tool}
+              page={page}
               onAdd={(s) => dispatch({ type: "shapes_changed", shapes: [...o.annotations, s] })}
             />
           )}
@@ -464,16 +534,29 @@ export function App() {
           backend={backend}
           path={file.path}
           edits={NO_EDITS}
+          page={page}
+          caption={caption}
           natural={natural}
           label="Redact"
           toolbarStart={backToOperations}
-          overlay={(box) => (
-            <RedactLayer
-              box={box}
-              regions={o.redactions}
-              onAdd={(r) => dispatch({ type: "regions_changed", regions: [...o.redactions, r] })}
-            />
-          )}
+          toolbarEnd={pageNav}
+          overlay={(box) =>
+            isPdf ? (
+              <RedactLayer
+                box={box}
+                regions={state.pdf.regions.filter((r) => r.page === page)}
+                onAdd={(r) =>
+                  dispatch({ type: "pdf_changed", patch: { regions: [...state.pdf.regions, { ...r, page }] } })
+                }
+              />
+            ) : (
+              <RedactLayer
+                box={box}
+                regions={o.redactions}
+                onAdd={(r) => dispatch({ type: "regions_changed", regions: [...o.redactions, r] })}
+              />
+            )
+          }
         />
       );
     } else if (op.id === "background") {
@@ -491,13 +574,15 @@ export function App() {
     } else {
       // Edit, Crop, and Convert's optional edit preview.
       const isCrop = op.id === "crop" || cropping;
-      const renderEdits = isCrop ? { ...e, crop: null } : op.id === "edit" ? { ...e, crop: null } : e;
+      const renderEdits = isPdf ? NO_EDITS : isCrop || op.id === "edit" ? { ...e, crop: null } : e;
       stage = (
         <PreviewView
           backend={backend}
           path={file.path}
           edits={renderEdits}
-          natural={editedSize(file, renderEdits)}
+          page={page}
+          caption={caption}
+          natural={isPdf ? natural : editedSize(file, renderEdits)}
           label={isCrop ? "Crop" : op.id === "edit" ? "Edit" : "Edited original"}
           crop={isCrop ? { value: e.crop ?? FULL_CROP, onChange: (c) => setEdits({ crop: c }) } : null}
           toolbarStart={
@@ -519,7 +604,7 @@ export function App() {
           }
           toolbarEnd={
             <>
-              {rotateButtons(e)}
+              {isPdf ? pageNav : rotateButtons(e)}
               {op.id === "convert" &&
                 (cropping ? (
                   <>
@@ -835,7 +920,10 @@ export function App() {
           )}
         </aside>
       </main>
-      <StatusBar message={status} engine={op?.engineLabel ?? "Built-in image engine"} />
+      <StatusBar
+        message={status}
+        engine={op?.engineLabel ?? (isPdf ? "PDF engine (PDFium)" : "Built-in image engine")}
+      />
 
       {overlay === "history" && (
         <HistoryDrawer

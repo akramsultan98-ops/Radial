@@ -156,6 +156,8 @@ pub struct FileInfo {
     /// PDF only: number of pages. Width/height are then the first page's
     /// displayed size in points.
     pub pages: Option<u32>,
+    /// PDF only: displayed size of each page in points.
+    pub page_sizes: Vec<[f32; 2]>,
     /// PDF only: has an owner password / permission restrictions.
     pub restricted: bool,
     /// PDF only: carries a digital signature.
@@ -194,6 +196,7 @@ pub fn inspect(path: &Path) -> Result<FileInfo> {
         has_alpha: false,
         bit_depth: None,
         pages: None,
+        page_sizes: Vec::new(),
         restricted: false,
         signed: false,
         extension_mismatch: false,
@@ -250,6 +253,7 @@ pub fn inspect(path: &Path) -> Result<FileInfo> {
                         info.width = Some(p.width.round().max(1.0) as u32);
                         info.height = Some(p.height.round().max(1.0) as u32);
                         info.pages = Some(p.pages);
+                        info.page_sizes = p.page_sizes;
                         info.restricted = p.restricted;
                         info.signed = p.signed;
                     }

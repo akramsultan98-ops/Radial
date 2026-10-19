@@ -30,8 +30,8 @@ export function createTauriBackend(): Backend {
       invoke("suggest_output", { source, operation, target, destDir: destDir ?? null, stem: stem ?? null }),
     runOperation: (jobId, request) => invoke("run_operation", { jobId, request }),
     cancel: (jobId) => invoke("cancel_job", { jobId }),
-    preview: async (path, edits, maxDim) => {
-      const bytes = await invoke<ArrayBuffer>("preview", { path, edits, maxDim });
+    preview: async (path, edits, maxDim, page) => {
+      const bytes = await invoke<ArrayBuffer>("preview", { path, edits, maxDim, page: page ?? null });
       return new Blob([bytes]);
     },
     history: () => invoke("history_list"),

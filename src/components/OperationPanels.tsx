@@ -3,8 +3,18 @@
 import { useEffect, useId, useState } from "react";
 import { toRadialError, type Backend } from "../lib/backend";
 import { formatBytes } from "../lib/format";
-import type { CropRect, FileInfo, MetadataEdit, MetadataReport, Operation, RadialError, Shape, ShapeKind } from "../lib/types";
-import { IconAlert, IconCrop, IconRotateLeft, IconRotateRight, IconTrash } from "./Icons";
+import type {
+  CropRect,
+  FileInfo,
+  MetadataEdit,
+  MetadataReport,
+  Operation,
+  PageRegion,
+  RadialError,
+  Shape,
+  ShapeKind,
+} from "../lib/types";
+import { IconAlert, IconBack, IconCrop, IconRotateLeft, IconRotateRight, IconTrash } from "./Icons";
 
 const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` });
 
@@ -29,6 +39,7 @@ export function CompressPanel({
   const q = op.options.find((o) => o.kind === "quality");
   const longest = Math.max(file.width ?? 0, file.height ?? 0);
   const lossless = op.options.some((o) => o.kind === "optimize");
+  const pdf = file.format === "pdf";
   return (
     <div className="options">
       <p className="field__hint">
@@ -49,7 +60,11 @@ export function CompressPanel({
             style={fill(quality ?? q.default, q.min, q.max)}
             onChange={(e) => onQuality(Number(e.target.value))}
           />
-          <span className="field__hint">Lower quality gives a smaller file with more visible artefacts.</span>
+          <span className="field__hint">
+            {pdf
+              ? "Photos inside the PDF are re-encoded at this quality. Text and drawings are not affected."
+              : "Lower quality gives a smaller file with more visible artefacts."}
+          </span>
         </div>
       )}
       {lossless && <p className="note">Lossless optimisation: the pixels stay exactly the same.</p>}
@@ -57,9 +72,13 @@ export function CompressPanel({
         <div className="field">
           <div className="row">
             <span id={`${id}-md`} className="row__label">
-              Limit size
+              {pdf ? "Limit photo size" : "Limit size"}
               <span className="field__hint">
-                {maxDimension ? `Longest side ${maxDimension} px` : `Keeps ${file.width} × ${file.height}`}
+                {maxDimension
+                  ? `Longest side ${maxDimension} px`
+                  : pdf
+                    ? "Photos keep their resolution"
+                    : `Keeps ${file.width} × ${file.height}`}
               </span>
             </span>
             <button
@@ -68,7 +87,9 @@ export function CompressPanel({
               aria-checked={maxDimension !== null}
               aria-labelledby={`${id}-md`}
               className="switch"
-              onClick={() => onMaxDimension(maxDimension ? null : Math.min(2048, Math.max(1, Math.round(longest / 2))))}
+              onClick={() =>
+                onMaxDimension(maxDimension ? null : pdf ? 1600 : Math.min(2048, Math.max(1, Math.round(longest / 2))))
+              }
             />
           </div>
           {maxDimension !== null && (
@@ -99,16 +120,20 @@ export function CropPanel({
   onRotate,
   onStartCrop,
   onClear,
+  pdf = null,
 }: {
   crop: CropRect | null;
   rotate: number;
   onRotate: (deg: 0 | 90 | 180 | 270) => void;
   onStartCrop: () => void;
   onClear: () => void;
+  /** PDFs: page count and whether the crop applies to every page. */
+  pdf?: { pages: number; page: number; allPages: boolean; onAllPages: (v: boolean) => void } | null;
 }) {
+  const id = useId();
   return (
     <div className="options">
-      <p className="field__hint">Drag the handles on the image to choose the area to keep.</p>
+      <p className="field__hint">Drag the handles on the {pdf ? "page" : "image"} to choose the area to keep.</p>
       <div className="button-row">
         <button type="button" className="btn" onClick={onStartCrop}>
           <IconCrop />
@@ -120,6 +145,25 @@ export function CropPanel({
           </button>
         )}
       </div>
+      {pdf && pdf.pages > 1 && (
+        <div className="row">
+          <span id={`${id}-all`} className="row__label">
+            Apply to all pages
+            <span className="field__hint">
+              {pdf.allPages ? `Same area on all ${pdf.pages} pages` : `Only page ${pdf.page + 1}`}
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pdf.allPages}
+            aria-labelledby={`${id}-all`}
+            className="switch"
+            onClick={() => pdf.onAllPages(!pdf.allPages)}
+          />
+        </div>
+      )}
+      {!pdf && (
       <div className="row">
         <span className="row__label">Rotate first</span>
         <div className="edit-group__tools">
@@ -131,12 +175,111 @@ export function CropPanel({
           </button>
         </div>
       </div>
+      )}
       {crop && (
         <p className="edit-summary">
           <span>
-            Keeping {Math.round(crop.width * 100)}% × {Math.round(crop.height * 100)}% of the image
+            Keeping {Math.round(crop.width * 100)}% × {Math.round(crop.height * 100)}% of the {pdf ? "page" : "image"}
           </span>
         </p>
+      )}
+      {pdf && (
+        <p className="note">
+          <IconAlert />
+          Cropping hides the rest of the page; it doesn't delete it. Use Redact to remove sensitive content.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- Pages
+
+/** Previous/next page control for PDFs. */
+export function PageNav({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+  if (pages <= 1) return null;
+  return (
+    <div className="page-nav" role="group" aria-label="Page">
+      <button
+        type="button"
+        className="icon-btn"
+        aria-label="Previous page"
+        disabled={page <= 0}
+        onClick={() => onPage(page - 1)}
+      >
+        <IconBack />
+      </button>
+      <span className="page-nav__label" aria-live="polite">
+        Page {page + 1} of {pages}
+      </span>
+      <button
+        type="button"
+        className="icon-btn page-nav__next"
+        aria-label="Next page"
+        disabled={page >= pages - 1}
+        onClick={() => onPage(page + 1)}
+      >
+        <IconBack />
+      </button>
+    </div>
+  );
+}
+
+/** PDF → image export: page and resolution. */
+export function PdfExportOptions({
+  pages,
+  page,
+  dpi,
+  dpiSpec,
+  onPage,
+  onDpi,
+}: {
+  pages: number;
+  page: number;
+  dpi: number | null;
+  dpiSpec: { min: number; max: number; default: number } | null;
+  onPage: (p: number) => void;
+  onDpi: (d: number) => void;
+}) {
+  const id = useId();
+  const value = dpi ?? dpiSpec?.default ?? 150;
+  return (
+    <div className="options">
+      {pages > 1 && (
+        <div className="field">
+          <label className="field__label" htmlFor={`${id}-page`}>
+            Page
+          </label>
+          <div className="dims">
+            <input
+              id={`${id}-page`}
+              className="input mono"
+              type="number"
+              min={1}
+              max={pages}
+              value={page + 1}
+              onChange={(e) => onPage(Number(e.target.value) - 1)}
+            />
+            <span className="dims__unit">of {pages}</span>
+          </div>
+        </div>
+      )}
+      {dpiSpec && (
+        <div className="field">
+          <span className="field__label" id={`${id}-dpi`}>
+            Resolution <span className="field__value">{value} DPI</span>
+          </span>
+          <div className="segmented" role="radiogroup" aria-labelledby={`${id}-dpi`}>
+            {[72, 150, 300]
+              .filter((d) => d >= dpiSpec.min && d <= dpiSpec.max)
+              .map((d) => (
+                <button key={d} type="button" role="radio" aria-checked={value === d} onClick={() => onDpi(d)}>
+                  {d === 72 ? "Screen" : d === 150 ? "Standard" : "Print"}
+                </button>
+              ))}
+          </div>
+          <span className="field__hint">Higher resolution gives a sharper, larger image.</span>
+        </div>
       )}
     </div>
   );
@@ -274,6 +417,94 @@ export function AnnotatePanel({
 }
 
 // ---------------------------------------------------------------- Redact
+
+/** Redact for PDFs: areas on any page plus text to find everywhere. */
+export function PdfRedactPanel({
+  regions,
+  terms,
+  pages,
+  onRegions,
+  onTerms,
+  onGoToPage,
+}: {
+  regions: PageRegion[];
+  terms: string[];
+  pages: number;
+  onRegions: (r: PageRegion[]) => void;
+  onTerms: (t: string[]) => void;
+  onGoToPage: (p: number) => void;
+}) {
+  const id = useId();
+  const [draft, setDraft] = useState(terms.join("\n"));
+  const pagesWith = new Set(regions.map((r) => r.page)).size;
+  return (
+    <div className="options">
+      <p className="field__hint">
+        Drag on the page to cover areas{pages > 1 ? " (use the page arrows to move between pages)" : ""}, and/or enter
+        text to remove wherever it appears.
+      </p>
+      <div className="field">
+        <label className="field__label" htmlFor={`${id}-terms`}>
+          Find and remove text
+        </label>
+        <textarea
+          id={`${id}-terms`}
+          className="input"
+          rows={3}
+          value={draft}
+          placeholder={"One per line, e.g.\nACME Corporation\nDE89 3704"}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            onTerms(
+              e.target.value
+                .split("\n")
+                .map((t) => t.trim())
+                .filter(Boolean),
+            );
+          }}
+        />
+        <span className="field__hint">Not case-sensitive. Scanned pages have no text to search; mark them by hand.</span>
+      </div>
+      <p className="note">
+        <IconAlert />
+        Each page with a redaction is saved as an image with the areas blacked out, so its text can no longer be
+        selected or recovered. Other pages stay as they are. Document metadata is removed.
+      </p>
+      {regions.length > 0 && (
+        <div className="shape-list">
+          <div className="section-head">
+            <span className="field__label">
+              {regions.length} area{regions.length === 1 ? "" : "s"}
+              {pages > 1 ? ` on ${pagesWith} page${pagesWith === 1 ? "" : "s"}` : ""}
+            </span>
+            <button type="button" className="link" onClick={() => onRegions([])}>
+              Clear all
+            </button>
+          </div>
+          <ul>
+            {regions.map((r, i) => (
+              <li key={i}>
+                <span className="swatch swatch--sm" style={{ background: "#000" }} aria-hidden="true" />
+                <button type="button" className="link truncate" onClick={() => onGoToPage(r.page)}>
+                  Area {i + 1}
+                  {pages > 1 ? ` · page ${r.page + 1}` : ""}
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={`Remove area ${i + 1}`}
+                  onClick={() => onRegions(regions.filter((_, j) => j !== i))}
+                >
+                  <IconTrash />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function RedactPanel({ regions, onRegions }: { regions: CropRect[]; onRegions: (r: CropRect[]) => void }) {
   return (

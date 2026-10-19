@@ -182,3 +182,21 @@
   background: rgba(0, 0, 0, 0.7);
   outline: 1.5px dashed var(--danger);
 }
+
+/* ---------- PDF page navigation ---------- */
+
+.page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.page-nav__label {
+  min-width: 92px;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.page-nav__next svg {
+  transform: scaleX(-1);
+}

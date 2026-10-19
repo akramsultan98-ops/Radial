@@ -260,6 +260,11 @@
   width: 40px;
   height: 40px;
 }
+.rejected__orb--ok {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 
 /* ---------- Drop veil & notice ---------- */
 

@@ -15,11 +15,12 @@ import type {
   OperationId,
   OperationOutcome,
   OutputSuggestion,
+  PdfOptions,
   RadialError,
   Settings,
   Shape,
 } from "../lib/types";
-import { EMPTY_METADATA_EDIT, NO_EDITS } from "../lib/types";
+import { DEFAULT_PDF_OPTIONS, EMPTY_METADATA_EDIT, NO_EDITS } from "../lib/types";
 
 export type Phase = "empty" | "rejected" | "choose" | "configure" | "converting" | "done" | "failed";
 
@@ -43,6 +44,8 @@ export interface State {
   metadata: MetadataEdit;
   /** Compress: longest side in pixels. */
   maxDimension: number | null;
+  /** PDF page, redaction areas/terms, export resolution. */
+  pdf: PdfOptions;
   output: Output | null;
   job: { id: string; stage: JobStage } | null;
   outcome: OperationOutcome | null;
@@ -68,6 +71,8 @@ export type Action =
   | { type: "regions_changed"; regions: CropRect[] }
   | { type: "metadata_changed"; patch: Partial<MetadataEdit> }
   | { type: "max_dimension_changed"; value: number | null }
+  | { type: "page_changed"; page: number }
+  | { type: "pdf_changed"; patch: Partial<PdfOptions> }
   | { type: "output_suggested"; suggestion: OutputSuggestion }
   | { type: "output_changed"; patch: Partial<Output> }
   | { type: "view_changed"; view: StageView }
@@ -111,6 +116,7 @@ export const initialState: State = {
   options: defaultOptions(),
   metadata: { ...EMPTY_METADATA_EDIT },
   maxDimension: null,
+  pdf: { ...DEFAULT_PDF_OPTIONS },
   output: null,
   job: null,
   outcome: null,
@@ -270,6 +276,13 @@ export function reducer(s: State, a: Action): State {
       return { ...s, metadata: { ...s.metadata, ...a.patch } };
     case "max_dimension_changed":
       return { ...s, maxDimension: a.value };
+    case "page_changed": {
+      const pages = activeFile(s)?.pages ?? 1;
+      const page = Math.max(0, Math.min(pages - 1, Math.round(a.page)));
+      return page === s.pdf.page ? s : { ...s, pdf: { ...s.pdf, page } };
+    }
+    case "pdf_changed":
+      return { ...s, pdf: { ...s.pdf, ...a.patch } };
     case "output_suggested":
       return { ...s, output: { destDir: a.suggestion.destDir, stem: a.suggestion.stem } };
     case "output_changed":

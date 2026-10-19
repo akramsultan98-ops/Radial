@@ -25,19 +25,20 @@ export function usePreview(
   path: string | null,
   edits: Edits,
   maxDim: number,
+  page = 0,
   delay = 90,
 ): PreviewState {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const urlRef = useRef<string | null>(null);
   const editsKey = JSON.stringify(edits);
-  const key = path ? `${path}|${editsKey}|${maxDim}` : "";
+  const key = path ? `${path}|${page}|${editsKey}|${maxDim}` : "";
 
   useEffect(() => {
     if (!backend || !path) return;
     let alive = true;
     const t = setTimeout(() => {
       backend
-        .preview(path, JSON.parse(editsKey) as Edits, maxDim)
+        .preview(path, JSON.parse(editsKey) as Edits, maxDim, page)
         .then((blob) => {
           if (!alive) return;
           const url = URL.createObjectURL(blob);
@@ -53,7 +54,7 @@ export function usePreview(
       alive = false;
       clearTimeout(t);
     };
-  }, [backend, path, editsKey, maxDim, delay, key]);
+  }, [backend, path, page, editsKey, maxDim, delay, key]);
 
   useEffect(
     () => () => {
@@ -64,8 +65,8 @@ export function usePreview(
   );
 
   if (!backend || !path) return { url: null, loading: false, error: null };
-  // Keep showing the last image of the same file while a new render is pending.
-  const samePath = loaded?.key.startsWith(`${path}|`) ?? false;
+  // Keep showing the last image of the same file (and page) while a new render is pending.
+  const samePath = loaded?.key.startsWith(`${path}|${page}|`) ?? false;
   return {
     url: samePath ? (loaded?.url ?? null) : null,
     loading: loaded?.key !== key,

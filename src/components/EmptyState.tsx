@@ -24,7 +24,8 @@ export function EmptyState({ sources, dragOver, onPick }: Props) {
       </div>
       <h1 className="empty__title">{dragOver ? "Release to open" : "Drop a file to begin"}</h1>
       <p className="empty__sub">
-        Convert between formats in one gesture. Everything happens on this computer — nothing is uploaded.
+        Convert, compress, crop, annotate and redact images and PDFs in one gesture. Everything happens on this
+        computer — nothing is uploaded.
       </p>
       <div className="empty__actions">
         <button type="button" className="btn btn--primary btn--lg" onClick={onPick}>

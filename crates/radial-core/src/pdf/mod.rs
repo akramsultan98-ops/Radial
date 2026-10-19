@@ -157,6 +157,8 @@ pub struct PdfInfo {
     pub restricted: bool,
     /// Carries a digital signature.
     pub signed: bool,
+    /// Displayed size of every page, in points.
+    pub page_sizes: Vec<[f32; 2]>,
 }
 
 pub fn inspect(path: &Path) -> Result<PdfInfo> {
@@ -183,10 +185,18 @@ pub fn inspect(path: &Path) -> Result<PdfInfo> {
         doc.permissions().security_handler_revision(),
         Ok(PdfSecurityHandlerRevision::Unprotected)
     );
+    let page_sizes = doc
+        .pages()
+        .page_sizes()
+        .map_err(|e| pdf_err("reading page sizes", e))?
+        .iter()
+        .map(|r| [r.width().value, r.height().value])
+        .collect();
     Ok(PdfInfo {
         pages,
         width: first.width().value,
         height: first.height().value,
+        page_sizes,
         restricted,
         signed: !doc.signatures().is_empty(),
     })

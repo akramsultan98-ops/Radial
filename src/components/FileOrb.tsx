@@ -39,7 +39,11 @@ export function FileOrb({ backend, file, edits, route, stage }: Props) {
       ) : (
         <div className="orb__meta">
           <span className="badge">{from}</span>
-          {file.width && file.height ? `${file.width} × ${file.height}` : null}
+          {file.format === "pdf"
+            ? `${file.pages ?? 1} page${file.pages === 1 ? "" : "s"}`
+            : file.width && file.height
+              ? `${file.width} × ${file.height}`
+              : null}
         </div>
       )}
       {stage && (

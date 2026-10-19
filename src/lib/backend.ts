@@ -39,8 +39,8 @@ export interface Backend {
   ): Promise<OutputSuggestion>;
   runOperation(jobId: string, request: OperationRequest): Promise<OperationOutcome>;
   cancel(jobId: string): Promise<boolean>;
-  /** Rendered preview bytes (JPEG or PNG). */
-  preview(path: string, edits: Edits, maxDim: number): Promise<Blob>;
+  /** Rendered preview bytes (JPEG or PNG); `page` selects a PDF page. */
+  preview(path: string, edits: Edits, maxDim: number, page?: number): Promise<Blob>;
   history(): Promise<HistoryEntry[]>;
   clearHistory(): Promise<void>;
   retry(id: string): Promise<RetryPlan>;

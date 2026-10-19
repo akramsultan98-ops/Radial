@@ -27,12 +27,29 @@ interface Props {
   overlay?: ((box: { w: number; h: number; natural: { width: number; height: number } }) => ReactNode) | null;
   /** Background colour and border (in image pixels) shown around the image. */
   frame?: { color: string; padding: number } | null;
+  /** PDF page to render (0-based). */
+  page?: number;
+  /** Replaces the "width × height" caption (e.g. page size for PDFs). */
+  caption?: string | undefined;
 }
 
 const ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
 const TIERS = [512, 1024, 2048, 4096, 8192];
 
-export function PreviewView({ backend, path, edits, natural, label, toolbarStart, toolbarEnd, crop, overlay, frame }: Props) {
+export function PreviewView({
+  backend,
+  path,
+  edits,
+  natural,
+  label,
+  toolbarStart,
+  toolbarEnd,
+  crop,
+  overlay,
+  frame,
+  page = 0,
+  caption,
+}: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 800, h: 600 });
   const [zoom, setZoom] = useState<number | "fit">("fit");
@@ -58,7 +75,7 @@ export function PreviewView({ backend, path, edits, natural, label, toolbarStart
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const needed = Math.max(dispW, dispH) * dpr;
   const tier = Math.min(TIERS.find((t) => t >= needed) ?? 8192, Math.max(natural.width, natural.height, 512));
-  const preview = usePreview(backend, path, edits, tier);
+  const preview = usePreview(backend, path, edits, tier, page);
 
   const step = (dir: 1 | -1) => {
     const cur = scale;
@@ -132,9 +149,7 @@ export function PreviewView({ backend, path, edits, natural, label, toolbarStart
       )}
       <div className="preview__caption">
         <span className="badge">{label}</span>
-        <span>
-          {natural.width} × {natural.height}
-        </span>
+        <span>{caption ?? `${natural.width} × ${natural.height}`}</span>
         {preview.loading && <span className="preview__busy">Rendering…</span>}
       </div>
     </div>

@@ -34,6 +34,30 @@ export function FileDetails({ item }: { item: ImportResult }) {
       <p className="card__path truncate mono selectable" title={dirName(item.path)}>
         {shortenPath(dirName(item.path), 46)}
       </p>
+      {item.format === "pdf" ? (
+        <dl className="facts">
+          <div>
+            <dt>Size</dt>
+            <dd>{formatBytes(item.size)}</dd>
+          </div>
+          <div>
+            <dt>Pages</dt>
+            <dd>{item.pages ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Page size</dt>
+            <dd>
+              {item.width && item.height
+                ? `${Math.round((item.width / 72) * 25.4)} × ${Math.round((item.height / 72) * 25.4)} mm`
+                : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt>Protection</dt>
+            <dd>{item.restricted ? "Restricted" : item.signed ? "Signed" : "None"}</dd>
+          </div>
+        </dl>
+      ) : (
       <dl className="facts">
         <div>
           <dt>Size</dt>
@@ -52,6 +76,19 @@ export function FileDetails({ item }: { item: ImportResult }) {
           <dd>{item.bitDepth ? `${item.bitDepth}-bit` : "—"}</dd>
         </div>
       </dl>
+      )}
+      {item.restricted && !item.problem && (
+        <p className="note note--warning">
+          <IconAlert />
+          This PDF has an owner password that restricts changes. RADIAL can show its properties but won't modify it.
+        </p>
+      )}
+      {item.signed && !item.problem && (
+        <p className="note note--warning">
+          <IconAlert />
+          This PDF is digitally signed. A changed copy won't carry a valid signature.
+        </p>
+      )}
       {item.extensionMismatch && !item.problem && (
         <p className="note note--warning">
           <IconAlert />

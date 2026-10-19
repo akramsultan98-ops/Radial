@@ -9,6 +9,8 @@ export const FORMAT_LABEL: Record<Format, string> = {
   bmp: "BMP",
   tiff: "TIFF",
   gif: "GIF",
+  pdf: "PDF",
+  txt: "Text",
 };
 
 export const OPERATION_LABEL: Record<OperationId, string> = {
@@ -29,6 +31,8 @@ export const FORMAT_EXT: Record<Format, string> = {
   bmp: "bmp",
   tiff: "tiff",
   gif: "gif",
+  pdf: "pdf",
+  txt: "txt",
 };
 
 /** One-line character of each format, shown in the accessible format list. */
@@ -39,6 +43,8 @@ export const FORMAT_HINT: Record<Format, string> = {
   bmp: "Uncompressed",
   tiff: "Archival, 16-bit",
   gif: "256 colours",
+  pdf: "Documents, print",
+  txt: "Plain text, no layout",
 };
 
 export function formatBytes(n: number): string {
@@ -70,7 +76,7 @@ export const STAGES: readonly JobStage[] = ["queued", "decoding", "processing", 
 
 export const STAGE_LABEL: Record<JobStage, string> = {
   queued: "Waiting for a free slot",
-  decoding: "Reading image",
+  decoding: "Reading file",
   processing: "Applying changes",
   encoding: "Writing output",
   verifying: "Verifying result",

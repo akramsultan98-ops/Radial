@@ -99,11 +99,14 @@ export function AnnotationLayer({
   box,
   shapes,
   tool,
+  page = 0,
   onAdd,
 }: {
   box: Box;
   shapes: Shape[];
   tool: AnnotateTool;
+  /** PDF page new shapes belong to. */
+  page?: number;
   onAdd: (s: Shape) => void;
 }) {
   const { startRef, current, setCurrent, frac } = usePointerDrag(box);
@@ -118,6 +121,7 @@ export function AnnotationLayer({
     filled: tool.filled,
     text: tool.text,
     size: tool.size,
+    page,
   });
 
   const down = (e: PointerEvent<SVGSVGElement>) => {

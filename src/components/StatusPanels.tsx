@@ -72,6 +72,9 @@ export function savedPercent(o: OperationOutcome): number {
 export function ResultPanel({ outcome, onOpen, onReveal, onAnother, onNewFile }: ResultProps) {
   const name = outcome.outputPath.split(/[\\/]/).pop() ?? outcome.outputPath;
   const dir = outcome.outputPath.slice(0, outcome.outputPath.length - name.length - 1);
+  // A size change only means something between like files (not PDF ↔ image or text).
+  const comparable = outcome.format !== "txt" && (outcome.format === "pdf") === (outcome.sourceFormat === "pdf");
+  const showSecond = outcome.operation === "compress" || (outcome.width !== null && outcome.height !== null);
   return (
     <section className="status status--success" aria-labelledby="done-title">
       <div className="status__icon status__icon--success" aria-hidden="true">
@@ -91,19 +94,23 @@ export function ResultPanel({ outcome, onOpen, onReveal, onAnother, onNewFile }:
           <dt>Size</dt>
           <dd>
             {formatBytes(outcome.sizeBytes)}{" "}
-            <span className="muted">{formatDelta(outcome.sourceSizeBytes, outcome.sizeBytes)}</span>
+            {comparable && <span className="muted">{formatDelta(outcome.sourceSizeBytes, outcome.sizeBytes)}</span>}
           </dd>
         </div>
+        {showSecond && (
         <div>
-          <dt>{outcome.operation === "compress" ? "Original" : "Dimensions"}</dt>
+          <dt>{outcome.operation === "compress" ? "Original" : outcome.format === "pdf" ? "Page size" : "Dimensions"}</dt>
           <dd>
             {outcome.operation === "compress"
               ? formatBytes(outcome.sourceSizeBytes)
               : outcome.width && outcome.height
-                ? `${outcome.width} × ${outcome.height}`
+                ? outcome.format === "pdf"
+                  ? `${Math.round((outcome.width / 72) * 25.4)} × ${Math.round((outcome.height / 72) * 25.4)} mm`
+                  : `${outcome.width} × ${outcome.height}`
                 : "—"}
           </dd>
         </div>
+        )}
       </dl>
       {outcome.operation === "compress" && (
         <div className="savings" aria-hidden="true">

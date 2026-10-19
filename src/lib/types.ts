@@ -1,7 +1,7 @@
 // Types mirroring the Rust core (`crates/radial-core`). Field names follow the
 // serde `camelCase` renames used there.
 
-export type Format = "png" | "jpeg" | "webp" | "bmp" | "tiff" | "gif";
+export type Format = "png" | "jpeg" | "webp" | "bmp" | "tiff" | "gif" | "pdf" | "txt";
 
 export type ErrorKind =
   | "unsupported_format"
@@ -45,6 +45,14 @@ export interface FileInfo {
   height: number | null;
   hasAlpha: boolean;
   bitDepth: number | null;
+  /** PDF only: page count. Width/height are then the first page in points. */
+  pages: number | null;
+  /** PDF only: displayed size of each page in points. */
+  pageSizes: [number, number][];
+  /** PDF only: owner-password restrictions (view-only). */
+  restricted: boolean;
+  /** PDF only: digitally signed. */
+  signed: boolean;
   extensionMismatch: boolean;
   problem: RadialError | null;
 }
@@ -67,7 +75,11 @@ export type OptionSpec =
   | { kind: "shapes" }
   | { kind: "regions" }
   | { kind: "metadata_fields" }
-  | { kind: "strip_metadata" };
+  | { kind: "strip_metadata" }
+  | { kind: "page" }
+  | { kind: "dpi"; min: number; max: number; default: number }
+  | { kind: "page_scope" }
+  | { kind: "terms" };
 
 export type OperationId =
   | "convert"
@@ -110,6 +122,8 @@ export interface Shape {
   filled: boolean;
   text: string;
   size: number;
+  /** PDF page (0-based); 0 for images. */
+  page: number;
 }
 
 export type EngineStatus = { state: "available" } | { state: "missing"; hint: string };
@@ -161,6 +175,22 @@ export interface ConvertOptions {
   optimize: boolean;
 }
 
+/** An area on one PDF page (0-based), as fractions of the displayed page. */
+export interface PageRegion extends CropRect {
+  page: number;
+}
+
+export interface PdfOptions {
+  /** Page shown in the editor (0-based); also the page PDF → image exports. */
+  page: number;
+  /** Crop: every page instead of only `page`. */
+  allPages: boolean;
+  regions: PageRegion[];
+  /** Redact: text to find and remove everywhere. */
+  terms: string[];
+  dpi: number | null;
+}
+
 export interface MetadataEdit {
   /** Empty strings remove a field. */
   fields: Record<string, string>;
@@ -176,6 +206,7 @@ export interface OperationRequest {
   options: ConvertOptions;
   metadata: MetadataEdit;
   maxDimension: number | null;
+  pdf: PdfOptions;
 }
 
 export interface OperationOutcome {
@@ -250,5 +281,7 @@ export interface Settings {
 }
 
 export const NO_EDITS: Edits = { rotate: 0, crop: null, brightness: 0, contrast: 0 };
+
+export const DEFAULT_PDF_OPTIONS: PdfOptions = { page: 0, allPages: false, regions: [], terms: [], dpi: null };
 
 export const EMPTY_METADATA_EDIT: MetadataEdit = { fields: {}, stripAll: false };

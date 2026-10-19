@@ -24,6 +24,14 @@ export function segment(page: Page, id: string) {
   return page.locator(`.radial [data-id="${id}"]`);
 }
 
+/** Click a segment at its label: with few, wide segments the centre of the
+ *  segment's bounding box falls in the ring's hole. */
+export async function clickSegment(page: Page, id: string) {
+  const box = await segment(page, id).locator(".seg__label").boundingBox();
+  if (!box) throw new Error(`segment ${id} not visible`);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 export async function chooseOperation(page: Page, op: string) {
   await segment(page, op).click();
   await expect(page.getByRole("heading", { level: 2, name: new RegExp(`^${op}$`, "i") })).toBeVisible();
@@ -35,7 +43,7 @@ export async function chooseFormat(page: Page, format: string) {
     await segment(page, "convert").click();
     await expect(page.getByRole("radiogroup", { name: "Output format" })).toBeVisible();
   }
-  await segment(page, format).click();
+  await clickSegment(page, format);
   await expect(page.getByRole("button", { name: /^Convert to/ })).toBeVisible();
 }
 
@@ -63,4 +71,15 @@ export async function failNext(page: Page, kind: string, message: string) {
     },
     [kind, message],
   );
+}
+
+/** Open the mock's three-page PDF (page 2 is landscape). */
+export async function openPdf(page: Page, over: Record<string, unknown> = {}) {
+  await ready(page);
+  await page.evaluate((o) => {
+    const m = window.__radialMock;
+    if (m) m.nextPick = [{ type: "file", ...m.samplePdf(undefined, o) }];
+  }, over);
+  await page.getByRole("button", { name: "Choose file" }).click();
+  await expect(page.getByRole("radiogroup", { name: "Actions", exact: true })).toBeVisible();
 }

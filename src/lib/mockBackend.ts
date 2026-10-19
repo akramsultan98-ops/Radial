@@ -23,12 +23,56 @@ import type {
 } from "./types";
 
 const FORMATS: Format[] = ["png", "jpeg", "webp", "bmp", "tiff", "gif"];
-const LABEL: Record<Format, string> = { png: "PNG", jpeg: "JPEG", webp: "WebP", bmp: "BMP", tiff: "TIFF", gif: "GIF" };
-const EXT: Record<Format, string> = { png: "png", jpeg: "jpg", webp: "webp", bmp: "bmp", tiff: "tiff", gif: "gif" };
+const LABEL: Record<Format, string> = {
+  png: "PNG",
+  jpeg: "JPEG",
+  webp: "WebP",
+  bmp: "BMP",
+  tiff: "TIFF",
+  gif: "GIF",
+  pdf: "PDF",
+  txt: "Text",
+};
+const EXT: Record<Format, string> = {
+  png: "png",
+  jpeg: "jpg",
+  webp: "webp",
+  bmp: "bmp",
+  tiff: "tiff",
+  gif: "gif",
+  pdf: "pdf",
+  txt: "txt",
+};
 const ALPHA: Format[] = ["png", "webp", "tiff", "gif"];
 
+const cap = (from: Format, to: Format, engineLabel: string, options: OptionSpec[], limitations: string[]): Capability => ({
+  from,
+  to,
+  toLabel: LABEL[to],
+  engine: engineLabel === "PDF engine (PDFium)" ? "pdfium" : "pdf_writer",
+  engineLabel,
+  engineStatus: { state: "available" },
+  available: true,
+  options,
+  limitations,
+  progress: "stages",
+  cancellation: "between_stages",
+});
+
+function pdfCaps(): Capability[] {
+  const page: OptionSpec[] = [{ kind: "page" }, { kind: "dpi", min: 36, max: 600, default: 150 }];
+  const note = ["Exports one page as a picture; its text is no longer selectable."];
+  return [
+    cap("pdf", "png", "PDF engine (PDFium)", page, note),
+    cap("pdf", "jpeg", "PDF engine (PDFium)", [...page, { kind: "quality", min: 1, max: 100, default: 90 }], note),
+    cap("pdf", "txt", "PDF engine (PDFium)", [], ["Scanned pages have no text layer and produce nothing (no OCR)."]),
+  ];
+}
+
 function caps(from: Format): Capability[] {
-  return FORMATS.filter((f) => f !== from).map((to) => {
+  if (from === "pdf") return pdfCaps();
+  const toPdf = cap(from, "pdf", "Built-in PDF writer", [], ["The image is placed on an A4 page."]);
+  return [...FORMATS.filter((f) => f !== from).map((to) => {
     const options: OptionSpec[] = [];
     if (to === "jpeg") options.push({ kind: "quality", min: 1, max: 100, default: 90 });
     if (to === "webp") options.push({ kind: "quality", min: 1, max: 100, default: 85 }, { kind: "lossless" });
@@ -46,8 +90,8 @@ function caps(from: Format): Capability[] {
       limitations: ["Camera metadata (EXIF, GPS) is not copied; orientation is applied to the pixels."],
       progress: "stages",
       cancellation: "between_stages",
-    };
-  });
+    } satisfies Capability;
+  }), toPdf];
 }
 
 const SUFFIX: Record<OperationId, string> = {
@@ -61,8 +105,49 @@ const SUFFIX: Record<OperationId, string> = {
   metadata: "-metadata",
 };
 
+/** Mirrors `pdf_operations` in the Rust core. */
+function pdfOperations(file: FileInfo): Operation[] {
+  const op = (id: OperationId, label: string, description: string, options: OptionSpec[], extra: Partial<Operation> = {}): Operation => ({
+    id,
+    label,
+    description,
+    available: !file.restricted || id === "metadata",
+    reason: file.restricted && id !== "metadata" ? "This PDF has security restrictions (an owner password), so RADIAL won't change or export it." : null,
+    engineLabel: "PDF engine (PDFium)",
+    options,
+    limitations: [],
+    outputFormat: "pdf",
+    targets: [],
+    preview: false,
+    cancellation: "between_stages",
+    ...extra,
+  });
+  return [
+    op("convert", "Convert", "Export pages as images or text", [], { outputFormat: null, targets: pdfCaps() }),
+    op("compress", "Compress", "Make the PDF smaller", [{ kind: "quality", min: 10, max: 95, default: 60 }, { kind: "max_dimension" }], {
+      limitations: ["If the result isn't smaller than the original, nothing is saved."],
+    }),
+    op("edit", "Edit", "Change text and layout", [], {
+      available: false,
+      reason: "Editing PDF text and layout isn't supported yet. Use Annotate to add text or Crop to trim pages.",
+    }),
+    op("crop", "Crop", "Trim page margins", [{ kind: "page" }, { kind: "crop" }, { kind: "page_scope" }], { preview: true }),
+    op("annotate", "Annotate", "Draw arrows, shapes and text on pages", [{ kind: "page" }, { kind: "shapes" }], { preview: true }),
+    op("redact", "Redact", "Permanently remove text and areas", [{ kind: "page" }, { kind: "regions" }, { kind: "terms" }], {
+      preview: true,
+      limitations: ["Each page with a redaction is replaced by an image of itself with the areas blacked out."],
+    }),
+    op("background", "Background", "Fill transparency or add a border", [], {
+      available: false,
+      reason: "Background applies to images. Pages in a PDF already have a background.",
+    }),
+    op("metadata", "Metadata", "View, edit or remove document properties", file.restricted ? [] : [{ kind: "metadata_fields" }, { kind: "strip_metadata" }]),
+  ];
+}
+
 /** Mirrors `ops::operations_for` in the Rust core for image files. */
 function operations(file: FileInfo): Operation[] {
+  if (file.format === "pdf") return pdfOperations(file);
   const f = file.format ?? "png";
   const op = (id: OperationId, label: string, description: string, options: OptionSpec[], extra: Partial<Operation> = {}): Operation => ({
     id,
@@ -106,6 +191,25 @@ function operations(file: FileInfo): Operation[] {
 }
 
 function metadataReport(file: FileInfo): MetadataReport {
+  if (file.format === "pdf") {
+    const editable = !file.restricted && !file.signed;
+    return {
+      fields: [
+        { key: "title", label: "Title", value: "Quarterly report", editable },
+        { key: "author", label: "Author", value: "Account team", editable },
+        { key: "subject", label: "Subject", value: null, editable },
+        { key: "keywords", label: "Keywords", value: null, editable },
+      ],
+      details: [
+        { label: "Pages", value: String(file.pages ?? 1) },
+        { label: "PDF producer", value: "ReportLab" },
+      ],
+      canEdit: editable,
+      canStrip: editable,
+      hasLocation: false,
+      notes: ["PDFs have no standard copyright field. Created/modified dates and the producer are shown but not edited."],
+    };
+  }
   const editable = file.format === "jpeg" || file.format === "png";
   return {
     fields: [
@@ -137,10 +241,34 @@ export function sampleFile(name = "Golden hour — 夕焼け.png", over: Partial
     height: 1600,
     hasAlpha: true,
     bitDepth: 8,
+    pages: null,
+    pageSizes: [],
+    restricted: false,
+    signed: false,
     extensionMismatch: false,
     problem: null,
     ...over,
   };
+}
+
+export function samplePdf(name = "Quarterly report.pdf", over: Partial<FileInfo> = {}): FileInfo {
+  return sampleFile(name, {
+    path: `/home/demo/Documents/${name}`,
+    size: 842_113,
+    recognized: { kind: "convertible", format: "pdf" },
+    format: "pdf",
+    width: 595,
+    height: 842,
+    hasAlpha: false,
+    bitDepth: null,
+    pages: 3,
+    pageSizes: [
+      [595, 842],
+      [842, 595],
+      [595, 842],
+    ],
+    ...over,
+  });
 }
 
 const asImport = (f: FileInfo): ImportResult => ({ type: "file", ...f });
@@ -156,6 +284,9 @@ interface MockControls {
   stageDelay: number;
   existing: Set<string>;
   sampleFile: typeof sampleFile;
+  samplePdf: typeof samplePdf;
+  /** Pages requested from `preview`, most recent last. */
+  previewPages: number[];
 }
 
 declare global {
@@ -165,6 +296,26 @@ declare global {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A white page with a few grey "lines of text", sized like the PDF page. */
+async function renderPage(file: FileInfo, page: number, maxDim: number): Promise<Blob> {
+  const [pw, ph] = file.pageSizes[page] ?? [595, 842];
+  const scale = maxDim / Math.max(pw, ph);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(pw * scale));
+  canvas.height = Math.max(1, Math.round(ph * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, pw, ph);
+  ctx.fillStyle = "#1d1d1f";
+  ctx.font = "600 22px sans-serif";
+  ctx.fillText(`Page ${page + 1}`, 60, 80);
+  ctx.fillStyle = "#9aa0a6";
+  for (let i = 0; i < 12; i++) ctx.fillRect(60, 120 + i * 28, (pw - 120) * (0.55 + ((i * 37) % 40) / 100), 10);
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob"))), "image/png"));
+}
 
 async function renderSample(edits: Edits, maxDim: number, label: string): Promise<Blob> {
   const rotated = edits.rotate === 90 || edits.rotate === 270;
@@ -240,6 +391,8 @@ export function createMockBackend(): Backend {
     stageDelay: 350,
     existing: new Set(),
     sampleFile,
+    samplePdf,
+    previewPages: [],
   };
   window.__radialMock = controls;
 
@@ -261,7 +414,7 @@ export function createMockBackend(): Backend {
     takeLaunchFiles: async () => [],
     pickFiles: async () => remember(controls.nextPick),
     pickDirectory: async () => "/home/demo/Exports",
-    sourceFormats: async () => FORMATS,
+    sourceFormats: async () => [...FORMATS, "pdf"],
     operations: async (path) => operations(fileFor(path)),
     readMetadata: async (path) => metadataReport(fileFor(path)),
     suggestOutput: async (source, operation, target, destDir, stem) => {
@@ -326,6 +479,27 @@ export function createMockBackend(): Backend {
       record("succeeded", null, out);
       const r = req.options.resize;
       const size = req.operation === "compress" ? 912_400 : target === "jpeg" ? 612_480 : 1_204_311;
+      if (file.format === "pdf" || target === "pdf") {
+        const pdfOut = target === "pdf";
+        const notes =
+          req.operation === "redact"
+            ? [
+                `${req.pdf.regions.length} area${req.pdf.regions.length === 1 ? "" : "s"} removed; those pages are now images.`,
+                ...(req.pdf.terms.length ? [`Search found ${req.pdf.terms.length} match${req.pdf.terms.length === 1 ? "" : "es"}.`] : []),
+              ]
+            : [];
+        return {
+          outputPath: out,
+          operation: req.operation,
+          sourceFormat: file.format ?? "pdf",
+          format: target,
+          width: target === "txt" ? null : pdfOut ? 595 : 1240,
+          height: target === "txt" ? null : pdfOut ? 842 : 1754,
+          sizeBytes: target === "txt" ? 4_212 : size,
+          sourceSizeBytes: file.size,
+          notes,
+        };
+      }
       return {
         outputPath: out,
         operation: req.operation,
@@ -345,8 +519,14 @@ export function createMockBackend(): Backend {
       cancelled.add(jobId);
       return true;
     },
-    preview: (path, edits, maxDim) =>
-      renderSample(edits, maxDim, path.slice(path.lastIndexOf(".") + 1).toUpperCase()),
+    preview: (path, edits, maxDim, page = 0) => {
+      const f = known.get(path);
+      if (f?.format === "pdf" || path.endsWith(".pdf")) {
+        controls.previewPages.push(page);
+        return renderPage(f ?? samplePdf(), page, maxDim);
+      }
+      return renderSample(edits, maxDim, path.slice(path.lastIndexOf(".") + 1).toUpperCase());
+    },
     history: async () => history,
     clearHistory: async () => {
       history = [];

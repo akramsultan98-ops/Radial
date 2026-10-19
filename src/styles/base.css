@@ -261,6 +261,14 @@ kbd {
 .input[aria-invalid="true"] {
   border-color: var(--danger);
 }
+textarea.input {
+  font: inherit;
+  height: auto;
+  min-height: 76px;
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.45;
+  resize: vertical;
+}
 
 input[type="range"] {
   -webkit-appearance: none;

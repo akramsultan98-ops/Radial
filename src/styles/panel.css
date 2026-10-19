@@ -712,6 +712,8 @@ kbd.kbd--on-accent {
 }
 .shape-list li .truncate {
   flex: 1;
+  text-align: left;
+  justify-content: flex-start;
 }
 
 .meta-details {

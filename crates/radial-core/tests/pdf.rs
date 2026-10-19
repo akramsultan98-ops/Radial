@@ -91,6 +91,9 @@ fn detects_pdfs_and_protection() {
     assert!(info.problem.is_none());
     assert_eq!(info.pages, Some(2));
     assert_eq!((info.width, info.height), (Some(595), Some(842)));
+    // Page 2 is displayed rotated (landscape).
+    let [w, h] = info.page_sizes[1];
+    assert!(w > h, "{:?}", info.page_sizes);
     assert!(!info.restricted);
 
     let locked = inspect(&fixture("encrypted.pdf")).unwrap();

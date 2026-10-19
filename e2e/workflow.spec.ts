@@ -12,7 +12,7 @@ test.describe("core workflow", () => {
     await ready(page);
     await expect(page.getByRole("heading", { name: "Drop a file to begin" })).toBeVisible();
     const formats = page.getByRole("list", { name: "Formats RADIAL can open" });
-    await expect(formats.getByRole("listitem")).toHaveText(["PNG", "JPEG", "WebP", "BMP", "TIFF", "GIF"]);
+    await expect(formats.getByRole("listitem")).toHaveText(["PNG", "JPEG", "WebP", "BMP", "TIFF", "GIF", "PDF"]);
     await expect(page.getByText("Local processing — files never leave this computer")).toBeVisible();
     await shot(page, "01-empty");
   });
@@ -63,7 +63,7 @@ test.describe("core workflow", () => {
     await openSample(page);
     await segment(page, "convert").click();
     const ring = page.getByRole("radiogroup", { name: "Output format" });
-    await expect(ring.getByRole("radio")).toHaveCount(5);
+    await expect(ring.getByRole("radio")).toHaveCount(6);
     await expect(segment(page, "png")).toHaveCount(0);
     await chooseFormat(page, "jpeg");
     await expect(segment(page, "jpeg")).toHaveAttribute("aria-checked", "true");

@@ -223,6 +223,22 @@ export function FormatIcon({ format, ...p }: P & { format: Format }) {
           <path d="M8 3.5v17M16 3.5v17M4 8h4M4 12h4M4 16h4M16 8h4M16 12h4M16 16h4" />
         </Svg>
       );
+    case "pdf":
+      // Document with a folded corner.
+      return (
+        <Svg {...p}>
+          <path d="M6 3.5h8l4.5 4.5v12.5H6z" />
+          <path d="M14 3.5V8h4.5" />
+          <path d="M8.5 12.5h7M8.5 15.5h7M8.5 18h4" strokeOpacity={0.6} />
+        </Svg>
+      );
+    case "txt":
+      // Lines of text.
+      return (
+        <Svg {...p}>
+          <path d="M5 6h14M5 10h14M5 14h14M5 18h9" />
+        </Svg>
+      );
   }
 }
 

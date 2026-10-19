@@ -11,6 +11,8 @@ import {
   CompressPanel,
   CropPanel,
   MetadataPanel,
+  PdfExportOptions,
+  PdfRedactPanel,
   RedactPanel,
   type AnnotateTool,
 } from "./OperationPanels";
@@ -45,6 +47,8 @@ export function OperationSettings({
 }: Props) {
   const setEdits = (patch: Partial<Edits>) => dispatch({ type: "edits_changed", patch });
   const o = state.options;
+  const isPdf = file.format === "pdf";
+  const pages = file.pages ?? 1;
 
   switch (op.id) {
     case "convert": {
@@ -68,7 +72,23 @@ export function OperationSettings({
               onSelect={onChooseTarget}
             />
           </section>
-          {cap && (
+          {cap && isPdf && cap.options.some((x) => x.kind === "page" || x.kind === "dpi") && (
+            <section className="panel__section">
+              <h2 className="section-label">Export</h2>
+              <PdfExportOptions
+                pages={pages}
+                page={state.pdf.page}
+                dpi={state.pdf.dpi}
+                dpiSpec={(() => {
+                  const d = cap.options.find((x) => x.kind === "dpi");
+                  return d && d.kind === "dpi" ? d : null;
+                })()}
+                onPage={(page) => dispatch({ type: "page_changed", page })}
+                onDpi={(dpi) => dispatch({ type: "pdf_changed", patch: { dpi } })}
+              />
+            </section>
+          )}
+          {cap && (!isPdf || cap.options.some((x) => x.kind === "quality")) && (
             <section className="panel__section">
               <h2 className="section-label">Options</h2>
               <OptionsPanel
@@ -131,6 +151,16 @@ export function OperationSettings({
             onRotate={(rotate) => setEdits({ rotate, crop: null })}
             onStartCrop={onStartCrop}
             onClear={() => setEdits({ crop: null })}
+            pdf={
+              isPdf
+                ? {
+                    pages,
+                    page: state.pdf.page,
+                    allPages: state.pdf.allPages,
+                    onAllPages: (allPages) => dispatch({ type: "pdf_changed", patch: { allPages } }),
+                  }
+                : null
+            }
           />
         </section>
       );
@@ -150,7 +180,18 @@ export function OperationSettings({
       return (
         <section className="panel__section">
           <h2 className="section-label">Areas</h2>
-          <RedactPanel regions={o.redactions} onRegions={(regions) => dispatch({ type: "regions_changed", regions })} />
+          {isPdf ? (
+            <PdfRedactPanel
+              regions={state.pdf.regions}
+              terms={state.pdf.terms}
+              pages={pages}
+              onRegions={(regions) => dispatch({ type: "pdf_changed", patch: { regions } })}
+              onTerms={(terms) => dispatch({ type: "pdf_changed", patch: { terms } })}
+              onGoToPage={(page) => dispatch({ type: "page_changed", page })}
+            />
+          ) : (
+            <RedactPanel regions={o.redactions} onRegions={(regions) => dispatch({ type: "regions_changed", regions })} />
+          )}
         </section>
       );
     case "background":
@@ -218,6 +259,9 @@ export function blockedReason(op: Operation, state: State, file: FileInfo): stri
     case "annotate":
       return o.annotations.length ? null : "Draw at least one annotation.";
     case "redact":
+      if (file.format === "pdf") {
+        return state.pdf.regions.length || state.pdf.terms.length ? null : "Mark an area or enter text to remove.";
+      }
       return o.redactions.length ? null : "Mark at least one area.";
     case "background":
       return !file.hasAlpha && o.padding === 0 ? "Add a border (this image has no transparency)." : null;
